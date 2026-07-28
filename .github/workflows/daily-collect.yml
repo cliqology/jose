@@ -1,0 +1,21 @@
+name: Queue daily JOSE collection
+
+on:
+  schedule:
+    - cron: "15 12 * * *"
+  workflow_dispatch:
+
+jobs:
+  queue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Queue all enabled sources
+        env:
+          JOSE_API_URL: ${{ secrets.JOSE_API_URL }}
+          JOSE_SCHEDULER_TOKEN: ${{ secrets.JOSE_SCHEDULER_TOKEN }}
+        run: |
+          test -n "$JOSE_API_URL"
+          test -n "$JOSE_SCHEDULER_TOKEN"
+          curl --fail-with-body --retry 3 --max-time 30 \
+            -X POST "$JOSE_API_URL/api/v1/admin/collect-all" \
+            -H "Authorization: Bearer $JOSE_SCHEDULER_TOKEN"

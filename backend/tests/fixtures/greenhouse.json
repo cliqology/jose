@@ -1,0 +1,13 @@
+{
+  "jobs": [
+    {
+      "id": 42,
+      "title": "General Manager",
+      "absolute_url": "https://boards.greenhouse.io/example/jobs/42",
+      "content": "<p>Own the business unit.</p>",
+      "departments": [{"name": "Executive"}],
+      "location": {"name": "Remote, US"},
+      "first_published": "2026-07-26T09:30:00-04:00"
+    }
+  ]
+}

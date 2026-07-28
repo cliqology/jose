@@ -1,0 +1,26 @@
+{
+  "jobs": [
+    {
+      "id": "ashby-1",
+      "title": "Chief Operating Officer",
+      "applyUrl": "https://jobs.ashbyhq.com/example/ashby-1/application",
+      "jobUrl": "https://jobs.ashbyhq.com/example/ashby-1",
+      "descriptionPlain": "Build and scale the operating system.",
+      "department": "Operations",
+      "location": "New York, NY",
+      "workplaceType": "Hybrid",
+      "employmentType": "FullTime",
+      "publishedAt": "2026-07-27T12:00:00Z",
+      "compensation": {
+        "summaryComponents": [
+          {
+            "compensationType": "Salary",
+            "minValue": 225000,
+            "maxValue": 275000,
+            "currencyCode": "USD"
+          }
+        ]
+      }
+    }
+  ]
+}

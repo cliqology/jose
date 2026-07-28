@@ -1,0 +1,76 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-jose}
+      POSTGRES_USER: ${POSTGRES_USER:-jose}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jose-local-password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - jose_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jose} -d ${POSTGRES_DB:-jose}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://jose:jose-local-password@db:5432/jose}
+      WATCHFILES_FORCE_POLLING: "true"
+    command: ["sh", "-c", "alembic upgrade head && uvicorn jose.api.main:app --host 0.0.0.0 --port 8000 --reload"]
+    volumes:
+      - ./backend:/app
+      - ./data:/data
+    ports:
+      - "${JOSE_API_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  worker:
+    build:
+      context: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://jose:jose-local-password@db:5432/jose}
+    command: ["python", "-m", "jose.cli", "worker"]
+    volumes:
+      - ./backend:/app
+      - ./data:/data
+    depends_on:
+      api:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./web
+      target: development
+    env_file: .env
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+      JOSE_INTERNAL_API_BASE_URL: ${JOSE_INTERNAL_API_BASE_URL:-http://api:8000}
+      WATCHPACK_POLLING: "true"
+    volumes:
+      - ./web:/app
+      - jose_web_node_modules:/app/node_modules
+      - jose_web_next:/app/.next
+    ports:
+      - "${JOSE_WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  jose_postgres_data:
+  jose_web_node_modules:
+  jose_web_next:

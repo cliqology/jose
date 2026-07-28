@@ -1,0 +1,15 @@
+[
+  {
+    "id": "lever-7",
+    "text": "President",
+    "applyUrl": "https://jobs.lever.co/example/lever-7/apply",
+    "hostedUrl": "https://jobs.lever.co/example/lever-7",
+    "description": "<div>Lead growth and operations.</div>",
+    "categories": {
+      "department": "Leadership",
+      "location": "Boston, MA",
+      "commitment": "Full-time"
+    },
+    "createdAt": 1785157200000
+  }
+]

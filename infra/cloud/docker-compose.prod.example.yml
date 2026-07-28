@@ -1,0 +1,32 @@
+services:
+  api:
+    build:
+      context: ../../backend
+    env_file: ../../.env.production
+    command: ["uvicorn", "jose.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ../../backend
+    env_file: ../../.env.production
+    command: ["python", "-m", "jose.cli", "worker"]
+    restart: unless-stopped
+    depends_on:
+      - api
+
+  web:
+    build:
+      context: ../../web
+      target: production
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
+    env_file: ../../.env.production
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+# Run database migrations as an explicit release command:
+# docker compose -f infra/cloud/docker-compose.prod.example.yml run --rm api alembic upgrade head

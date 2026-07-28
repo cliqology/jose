@@ -1,0 +1,19 @@
+[project]
+name = "jose-job-search"
+version = "0.1.0"
+description = "JOSE — Job Opportunity Search Engine"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.ruff.format]
+quote-style = "double"
