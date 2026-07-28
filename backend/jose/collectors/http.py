@@ -10,35 +10,53 @@ from jose.config import get_settings
 _CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
 
 
+def _resolve_and_validate(host: str) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError as exc:
+        raise UnsafeURLError(f"Unable to resolve host: {host}") from exc
+
+    addresses: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
+    for _family, _type, _proto, _canonname, sockaddr in infos:
+        ip = ipaddress.ip_address(sockaddr[0])
+        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+            ip = ip.ipv4_mapped
+        is_cgnat = isinstance(ip, ipaddress.IPv4Address) and ip in _CGNAT_NETWORK
+        if (
+            ip.is_loopback
+            or ip.is_private
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_unspecified
+            or ip.is_reserved
+            or is_cgnat
+        ):
+            raise UnsafeURLError(f"Refusing to contact unsafe host: {host} ({ip})")
+        addresses.append(ip)
+    return addresses
+
+
 class SafeHTTPTransport(httpx.HTTPTransport):
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         url = request.url
         if url.scheme not in ("http", "https"):
             raise UnsafeURLError(f"Unsafe URL scheme: {url.scheme}")
 
-        host = url.host
-        try:
-            infos = socket.getaddrinfo(host, None)
-        except OSError as exc:
-            raise UnsafeURLError(f"Unable to resolve host: {host}") from exc
+        addresses = _resolve_and_validate(url.host)
+        pinned = addresses[0]
 
-        for _family, _type, _proto, _canonname, sockaddr in infos:
-            ip = ipaddress.ip_address(sockaddr[0])
-            if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
-                ip = ip.ipv4_mapped
-            is_cgnat = isinstance(ip, ipaddress.IPv4Address) and ip in _CGNAT_NETWORK
-            if (
-                ip.is_loopback
-                or ip.is_private
-                or ip.is_link_local
-                or ip.is_multicast
-                or ip.is_unspecified
-                or ip.is_reserved
-                or is_cgnat
-            ):
-                raise UnsafeURLError(f"Refusing to contact unsafe host: {host} ({ip})")
+        extensions = dict(request.extensions)
+        if url.scheme == "https":
+            extensions["sni_hostname"] = url.host
 
-        return super().handle_request(request)
+        pinned_request = httpx.Request(
+            method=request.method,
+            url=url.copy_with(host=str(pinned)),
+            headers=request.headers,
+            stream=request.stream,
+            extensions=extensions,
+        )
+        return super().handle_request(pinned_request)
 
 
 def create_http_client() -> httpx.Client:

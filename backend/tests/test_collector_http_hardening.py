@@ -64,6 +64,82 @@ def test_transport_rejects_non_http_scheme() -> None:
         transport.handle_request(request)
 
 
+def test_transport_pins_connection_to_validated_ip(monkeypatch: pytest.MonkeyPatch) -> None:
+    call_count = 0
+
+    def counting_getaddrinfo(*_a: object, **_k: object) -> list[tuple]:
+        nonlocal call_count
+        call_count += 1
+        return _addrinfo("93.184.216.34")
+
+    monkeypatch.setattr(socket, "getaddrinfo", counting_getaddrinfo)
+
+    captured: dict[str, httpx.Request] = {}
+
+    def fake_handle_request(self: httpx.HTTPTransport, request: httpx.Request) -> httpx.Response:
+        captured["request"] = request
+        return httpx.Response(200, request=request)
+
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", fake_handle_request)
+
+    transport = SafeHTTPTransport()
+    request = httpx.Request("GET", "https://example.com/jobs?x=1")
+    transport.handle_request(request)
+
+    assert call_count == 1
+    pinned_request = captured["request"]
+    assert str(pinned_request.url) == "https://93.184.216.34/jobs?x=1"
+    assert pinned_request.extensions["sni_hostname"] == "example.com"
+    assert pinned_request.headers["host"] == "example.com"
+
+
+def test_transport_does_not_set_sni_hostname_for_plain_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *_a, **_k: _addrinfo("93.184.216.34"))
+
+    captured: dict[str, httpx.Request] = {}
+
+    def fake_handle_request(self: httpx.HTTPTransport, request: httpx.Request) -> httpx.Response:
+        captured["request"] = request
+        return httpx.Response(200, request=request)
+
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", fake_handle_request)
+
+    transport = SafeHTTPTransport()
+    request = httpx.Request("GET", "http://example.com/jobs")
+    transport.handle_request(request)
+
+    assert "sni_hostname" not in captured["request"].extensions
+
+
+def test_transport_pins_ipv6_connection(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *_a, **_k: [
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2606:4700:4700::1111", 0, 0, 0))
+        ],
+    )
+
+    captured: dict[str, httpx.Request] = {}
+
+    def fake_handle_request(self: httpx.HTTPTransport, request: httpx.Request) -> httpx.Response:
+        captured["request"] = request
+        return httpx.Response(200, request=request)
+
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", fake_handle_request)
+
+    transport = SafeHTTPTransport()
+    request = httpx.Request("GET", "https://example.com/jobs")
+    transport.handle_request(request)
+
+    pinned_request = captured["request"]
+    assert pinned_request.url.host == "2606:4700:4700::1111"
+    assert str(pinned_request.url) == "https://[2606:4700:4700::1111]/jobs"
+    assert pinned_request.extensions["sni_hostname"] == "example.com"
+
+
 class _FakeStreamResponse:
     def __init__(
         self, status_code: int, body: bytes, headers: dict[str, str] | None = None
