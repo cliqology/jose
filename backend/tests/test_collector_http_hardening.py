@@ -1,0 +1,106 @@
+import socket
+from collections.abc import Iterator
+from contextlib import contextmanager
+
+import httpx
+import pytest
+
+from jose.collectors.base import AccessDeniedError, CollectorError, RateLimitError, UnsafeURLError
+from jose.collectors.http import SafeHTTPTransport, safe_get
+from jose.config import get_settings
+
+
+def _addrinfo(ip: str) -> list[tuple]:
+    return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, 0))]
+
+
+def test_transport_blocks_private_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *_a, **_k: _addrinfo("10.0.0.5"))
+    transport = SafeHTTPTransport()
+    request = httpx.Request("GET", "https://internal.example.com/")
+    with pytest.raises(UnsafeURLError):
+        transport.handle_request(request)
+
+
+def test_transport_blocks_loopback_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *_a, **_k: _addrinfo("127.0.0.1"))
+    transport = SafeHTTPTransport()
+    request = httpx.Request("GET", "https://internal.example.com/")
+    with pytest.raises(UnsafeURLError):
+        transport.handle_request(request)
+
+
+def test_transport_allows_public_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *_a, **_k: _addrinfo("93.184.216.34"))
+    expected = httpx.Response(200, request=httpx.Request("GET", "https://example.com/"))
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", lambda self, request: expected)
+    transport = SafeHTTPTransport()
+    request = httpx.Request("GET", "https://example.com/")
+    assert transport.handle_request(request) is expected
+
+
+def test_transport_rejects_non_http_scheme() -> None:
+    transport = SafeHTTPTransport()
+    request = httpx.Request("GET", "file:///etc/passwd")
+    with pytest.raises(UnsafeURLError):
+        transport.handle_request(request)
+
+
+class _FakeStreamResponse:
+    def __init__(self, status_code: int, body: bytes) -> None:
+        self.status_code = status_code
+        self.headers = httpx.Headers({})
+        self._body = body
+        self.request = httpx.Request("GET", "https://example.com/jobs")
+
+    def iter_bytes(self) -> Iterator[bytes]:
+        chunk_size = 64
+        for i in range(0, len(self._body), chunk_size):
+            yield self._body[i : i + chunk_size]
+
+
+class _FakeStreamClient:
+    def __init__(self, response: _FakeStreamResponse) -> None:
+        self._response = response
+
+    @contextmanager
+    def stream(self, method: str, url: str, **_: object) -> Iterator[_FakeStreamResponse]:
+        yield self._response
+
+
+def test_safe_get_maps_429_to_rate_limit_error() -> None:
+    client = _FakeStreamClient(_FakeStreamResponse(429, b"{}"))
+    with pytest.raises(RateLimitError):
+        safe_get(client, "https://example.com/jobs")
+
+
+def test_safe_get_maps_401_to_access_denied_error() -> None:
+    client = _FakeStreamClient(_FakeStreamResponse(401, b"{}"))
+    with pytest.raises(AccessDeniedError):
+        safe_get(client, "https://example.com/jobs")
+
+
+def test_safe_get_maps_403_to_access_denied_error() -> None:
+    client = _FakeStreamClient(_FakeStreamResponse(403, b"{}"))
+    with pytest.raises(AccessDeniedError):
+        safe_get(client, "https://example.com/jobs")
+
+
+def test_safe_get_maps_other_4xx_to_collector_error() -> None:
+    client = _FakeStreamClient(_FakeStreamResponse(418, b"{}"))
+    with pytest.raises(CollectorError):
+        safe_get(client, "https://example.com/jobs")
+
+
+def test_safe_get_enforces_response_size_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(get_settings(), "collector_max_response_bytes", 10)
+    client = _FakeStreamClient(_FakeStreamResponse(200, b"x" * 1000))
+    with pytest.raises(CollectorError):
+        safe_get(client, "https://example.com/jobs")
+
+
+def test_safe_get_returns_full_response_on_success() -> None:
+    client = _FakeStreamClient(_FakeStreamResponse(200, b'{"ok": true}'))
+    response = safe_get(client, "https://example.com/jobs")
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
