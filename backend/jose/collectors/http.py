@@ -7,6 +7,8 @@ import httpx
 from jose.collectors.base import AccessDeniedError, CollectorError, RateLimitError, UnsafeURLError
 from jose.config import get_settings
 
+_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+
 
 class SafeHTTPTransport(httpx.HTTPTransport):
     def handle_request(self, request: httpx.Request) -> httpx.Response:
@@ -22,6 +24,7 @@ class SafeHTTPTransport(httpx.HTTPTransport):
 
         for _family, _type, _proto, _canonname, sockaddr in infos:
             ip = ipaddress.ip_address(sockaddr[0])
+            is_cgnat = isinstance(ip, ipaddress.IPv4Address) and ip in _CGNAT_NETWORK
             if (
                 ip.is_loopback
                 or ip.is_private
@@ -29,6 +32,7 @@ class SafeHTTPTransport(httpx.HTTPTransport):
                 or ip.is_multicast
                 or ip.is_unspecified
                 or ip.is_reserved
+                or is_cgnat
             ):
                 raise UnsafeURLError(f"Refusing to contact unsafe host: {host} ({ip})")
 

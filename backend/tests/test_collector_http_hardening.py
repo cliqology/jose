@@ -30,6 +30,14 @@ def test_transport_blocks_loopback_address(monkeypatch: pytest.MonkeyPatch) -> N
         transport.handle_request(request)
 
 
+def test_transport_blocks_cgnat_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *_a, **_k: _addrinfo("100.64.1.1"))
+    transport = SafeHTTPTransport()
+    request = httpx.Request("GET", "https://internal.example.com/")
+    with pytest.raises(UnsafeURLError):
+        transport.handle_request(request)
+
+
 def test_transport_allows_public_address(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(socket, "getaddrinfo", lambda *_a, **_k: _addrinfo("93.184.216.34"))
     expected = httpx.Response(200, request=httpx.Request("GET", "https://example.com/"))
