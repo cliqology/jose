@@ -1,10 +1,8 @@
 from urllib.parse import urlsplit
 
-import httpx
-
 from jose.collectors.base import CollectedJob, CollectorError
+from jose.collectors.http import create_http_client, safe_get
 from jose.collectors.utils import html_to_text, parse_datetime
-from jose.config import get_settings
 
 
 class LeverCollector:
@@ -16,11 +14,8 @@ class LeverCollector:
             raise CollectorError("Unable to determine Lever site name")
         site = parts[0]
         endpoint = f"https://api.lever.co/v0/postings/{site}"
-        with httpx.Client(
-            timeout=get_settings().collector_timeout_seconds, follow_redirects=True
-        ) as client:
-            response = client.get(endpoint, params={"mode": "json"})
-            response.raise_for_status()
+        with create_http_client() as client:
+            response = safe_get(client, endpoint, params={"mode": "json"})
             data = response.json()
 
         jobs: list[CollectedJob] = []

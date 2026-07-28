@@ -1,10 +1,8 @@
 from urllib.parse import parse_qs, urlsplit
 
-import httpx
-
 from jose.collectors.base import CollectedJob, CollectorError
+from jose.collectors.http import create_http_client, safe_get
 from jose.collectors.utils import html_to_text, parse_datetime
-from jose.config import get_settings
 
 
 class GreenhouseCollector:
@@ -24,11 +22,8 @@ class GreenhouseCollector:
     def collect(self, source_name: str, source_url: str) -> list[CollectedJob]:
         token = self._board_token(source_url)
         endpoint = f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs"
-        with httpx.Client(
-            timeout=get_settings().collector_timeout_seconds, follow_redirects=True
-        ) as client:
-            response = client.get(endpoint, params={"content": "true"})
-            response.raise_for_status()
+        with create_http_client() as client:
+            response = safe_get(client, endpoint, params={"content": "true"})
             data = response.json()
 
         jobs: list[CollectedJob] = []

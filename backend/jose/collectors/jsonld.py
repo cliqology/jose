@@ -2,23 +2,19 @@ import json
 from collections.abc import Iterable
 from typing import Any
 
-import httpx
 from bs4 import BeautifulSoup
 
 from jose.collectors.base import CollectedJob, CollectorError
+from jose.collectors.http import create_http_client, safe_get
 from jose.collectors.utils import html_to_text, parse_datetime
-from jose.config import get_settings
 
 
 class JsonLdCollector:
     name = "jsonld"
 
     def collect(self, source_name: str, source_url: str) -> list[CollectedJob]:
-        with httpx.Client(
-            timeout=get_settings().collector_timeout_seconds, follow_redirects=True
-        ) as client:
-            response = client.get(source_url)
-            response.raise_for_status()
+        with create_http_client() as client:
+            response = safe_get(client, source_url)
 
         soup = BeautifulSoup(response.text, "html.parser")
         postings: list[dict[str, Any]] = []

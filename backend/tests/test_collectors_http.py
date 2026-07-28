@@ -1,7 +1,10 @@
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 
 from jose.collectors.ashby import AshbyCollector
@@ -13,15 +16,26 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 class FakeResponse:
-    def __init__(self, *, payload: Any = None, text: str = "") -> None:
-        self._payload = payload
-        self.text = text
+    def __init__(self, *, payload: Any = None, text: str = "", status_code: int = 200) -> None:
+        self._body = json.dumps(payload).encode("utf-8") if payload is not None else text.encode(
+            "utf-8"
+        )
+        self.status_code = status_code
+        self.headers = httpx.Headers({})
+        self.request = httpx.Request("GET", "https://example.com/")
 
     def raise_for_status(self) -> None:
         return None
 
     def json(self) -> Any:
-        return self._payload
+        return json.loads(self._body)
+
+    @property
+    def text(self) -> str:
+        return self._body.decode("utf-8")
+
+    def iter_bytes(self) -> Iterator[bytes]:
+        yield self._body
 
 
 class FakeClient:
@@ -39,6 +53,11 @@ class FakeClient:
         self.requested_url = url
         return self.response
 
+    @contextmanager
+    def stream(self, method: str, url: str, **_: object) -> Iterator[FakeResponse]:
+        self.requested_url = url
+        yield self.response
+
 
 def json_fixture(name: str) -> Any:
     return json.loads((FIXTURES / name).read_text())
@@ -46,7 +65,7 @@ def json_fixture(name: str) -> Any:
 
 def patch_client(monkeypatch: pytest.MonkeyPatch, module_path: str, response: FakeResponse) -> None:
     client = FakeClient(response)
-    monkeypatch.setattr(f"{module_path}.httpx.Client", lambda **_: client)
+    monkeypatch.setattr(f"{module_path}.create_http_client", lambda: client)
 
 
 def test_ashby_collector(monkeypatch: pytest.MonkeyPatch) -> None:
