@@ -24,6 +24,8 @@ class SafeHTTPTransport(httpx.HTTPTransport):
 
         for _family, _type, _proto, _canonname, sockaddr in infos:
             ip = ipaddress.ip_address(sockaddr[0])
+            if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+                ip = ip.ipv4_mapped
             is_cgnat = isinstance(ip, ipaddress.IPv4Address) and ip in _CGNAT_NETWORK
             if (
                 ip.is_loopback
@@ -67,9 +69,16 @@ def safe_get(client: httpx.Client, url: str, **kwargs: Any) -> httpx.Response:
             if len(body) > max_bytes:
                 raise CollectorError(f"Response from {url} exceeded {max_bytes} bytes")
 
+        headers = httpx.Headers(
+            [
+                (name, value)
+                for name, value in response.headers.items()
+                if name.lower() not in ("content-encoding", "content-length")
+            ]
+        )
         return httpx.Response(
             status_code=response.status_code,
-            headers=response.headers,
+            headers=headers,
             content=bytes(body),
             request=response.request,
         )

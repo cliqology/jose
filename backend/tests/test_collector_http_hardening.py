@@ -38,6 +38,16 @@ def test_transport_blocks_cgnat_address(monkeypatch: pytest.MonkeyPatch) -> None
         transport.handle_request(request)
 
 
+def test_transport_blocks_ipv4_mapped_cgnat_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        socket, "getaddrinfo", lambda *_a, **_k: _addrinfo("::ffff:100.64.1.1")
+    )
+    transport = SafeHTTPTransport()
+    request = httpx.Request("GET", "https://internal.example.com/")
+    with pytest.raises(UnsafeURLError):
+        transport.handle_request(request)
+
+
 def test_transport_allows_public_address(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(socket, "getaddrinfo", lambda *_a, **_k: _addrinfo("93.184.216.34"))
     expected = httpx.Response(200, request=httpx.Request("GET", "https://example.com/"))
@@ -55,9 +65,11 @@ def test_transport_rejects_non_http_scheme() -> None:
 
 
 class _FakeStreamResponse:
-    def __init__(self, status_code: int, body: bytes) -> None:
+    def __init__(
+        self, status_code: int, body: bytes, headers: dict[str, str] | None = None
+    ) -> None:
         self.status_code = status_code
-        self.headers = httpx.Headers({})
+        self.headers = httpx.Headers(headers or {})
         self._body = body
         self.request = httpx.Request("GET", "https://example.com/jobs")
 
@@ -112,3 +124,18 @@ def test_safe_get_returns_full_response_on_success() -> None:
     response = safe_get(client, "https://example.com/jobs")
     assert response.status_code == 200
     assert response.json() == {"ok": True}
+
+
+def test_safe_get_strips_stale_content_encoding_header() -> None:
+    client = _FakeStreamClient(
+        _FakeStreamResponse(
+            200,
+            b'{"ok": true}',
+            headers={"content-encoding": "gzip", "content-length": "999"},
+        )
+    )
+    response = safe_get(client, "https://example.com/jobs")
+    assert "content-encoding" not in response.headers
+    # httpx recomputes content-length from the actual bytes on construction;
+    # the point is the stale "999" value from the fake upstream is gone.
+    assert response.headers["content-length"] == str(len(b'{"ok": true}'))

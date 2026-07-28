@@ -66,6 +66,18 @@ Issues are ordered. Complete acceptance criteria before starting the next issue 
 
 ---
 
+## Issue 03a — Pin collector connections to validated IPs
+
+**Goal:** Eliminate the resolve-then-connect DNS-rebinding race in `SafeHTTPTransport` so the connection made is provably the same IP that passed the SSRF safety check.
+
+**Acceptance criteria:**
+
+- The IP address JOSE's collectors connect to is the same IP that was validated by `SafeHTTPTransport`, with no second independent DNS resolution between check and connect.
+- Redirect-hop checking (one fresh validation per `Location:` header) continues to work as it does today.
+- No regression to the existing Issue 03 test suite.
+
+---
+
 ## Issue 04 — Productionize ATS collectors
 
 **Goal:** Reliably collect direct Ashby, Greenhouse, and Lever boards.

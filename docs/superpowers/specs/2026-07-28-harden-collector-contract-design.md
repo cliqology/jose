@@ -67,9 +67,22 @@ inline to calling `create_http_client()`, and from `client.get(...)` to
 4. Raises `UnsafeURLError(CollectorError)` naming the offending host.
 
 Because httpx invokes `transport.handle_request()` once per redirect hop
-when `follow_redirects=True`, this check runs on every hop automatically —
-covering DNS-rebinding-style redirect attacks without extra plumbing in
-`safe_get`.
+when `follow_redirects=True`, this check runs on every hop automatically,
+closing DNS-rebinding attacks that cross a redirect boundary (each new
+`Location:` header gets its own fresh resolution and check).
+
+This does **not** close a rebinding race within a single hop:
+`handle_request` resolves and validates the host via its own
+`socket.getaddrinfo` call, then calls `super().handle_request(request)`,
+which performs an independent, second resolution to actually open the
+connection. An attacker controlling DNS for the target host could answer
+the validation lookup with a public IP and the connection lookup with a
+private/loopback address (or the cloud metadata IP `169.254.169.254`),
+bypassing the check within that hop. Closing this fully requires pinning
+the connection to the already-validated IP (connecting directly to it
+while preserving the Host header/SNI) — a larger change to the transport
+layer than this issue scopes. Tracked as a follow-up: Issue 03a in
+`docs/backlog/PHASE_0_1_BACKLOG.md`.
 
 Since `JsonLdCollector` is designed to hit arbitrary VC-supplied career-page
 URLs, this must be an IP-range blocklist (not a domain allowlist) — a fixed
