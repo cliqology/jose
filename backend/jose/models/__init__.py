@@ -1,6 +1,7 @@
 from jose.models.core import (
     Company,
     Job,
+    JobMergeCandidate,
     JobSource,
     JobVersion,
     Source,
@@ -14,6 +15,7 @@ from jose.models.core import (
 __all__ = [
     "Company",
     "Job",
+    "JobMergeCandidate",
     "JobSource",
     "JobVersion",
     "Source",

@@ -5,6 +5,7 @@ from typing import Any
 from sqlalchemy import (
     Boolean,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -134,6 +135,9 @@ class Job(UUIDPrimaryKeyMixin, TimestampMixin, UserOwnedMixin, Base):
     fingerprint: Mapped[str] = mapped_column(String(64))
     content_hash: Mapped[str] = mapped_column(String(64))
     raw_payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    merged_into_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="SET NULL"), index=True
+    )
 
     company: Mapped[Company] = relationship()
 
@@ -168,6 +172,30 @@ class JobVersion(UUIDPrimaryKeyMixin, TimestampMixin, UserOwnedMixin, Base):
     content_hash: Mapped[str] = mapped_column(String(64))
     seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB)
+
+
+class JobMergeCandidate(UUIDPrimaryKeyMixin, TimestampMixin, UserOwnedMixin, Base):
+    __tablename__ = "job_merge_candidates"
+    __table_args__ = (Index("ix_job_merge_candidates_user_status", "user_id", "status"),)
+
+    job_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), index=True
+    )
+    candidate_job_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), index=True
+    )
+    similarity_score: Mapped[float] = mapped_column(Float)
+    matched_signals: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    kept_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="SET NULL")
+    )
+    merged_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="SET NULL")
+    )
+    moved_job_source_ids: Mapped[list[Any]] = mapped_column(JSONB, default=list)
+    moved_job_version_ids: Mapped[list[Any]] = mapped_column(JSONB, default=list)
 
 
 class Task(UUIDPrimaryKeyMixin, TimestampMixin, UserOwnedMixin, Base):
