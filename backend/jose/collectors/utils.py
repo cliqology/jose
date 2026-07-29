@@ -1,3 +1,4 @@
+import difflib
 import hashlib
 import json
 import re
@@ -120,3 +121,28 @@ def job_fingerprint(
         "external_id": external_job_id or "",
     }
     return stable_hash(payload)
+
+
+COMPANY_ALIAS_THRESHOLD = 0.6
+FUZZY_MATCH_THRESHOLD = 0.80
+
+
+def fuzzy_match_score(
+    company_a: str,
+    title_a: str,
+    location_a: str,
+    company_b: str,
+    title_b: str,
+    location_b: str,
+) -> dict[str, float]:
+    company = difflib.SequenceMatcher(
+        None, normalize_name(company_a), normalize_name(company_b)
+    ).ratio()
+    title = difflib.SequenceMatcher(
+        None, normalize_title(title_a), normalize_title(title_b)
+    ).ratio()
+    location = difflib.SequenceMatcher(
+        None, normalize_name(location_a), normalize_name(location_b)
+    ).ratio()
+    composite = 0.5 * company + 0.4 * title + 0.1 * location
+    return {"company": company, "title": title, "location": location, "composite": composite}

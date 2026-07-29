@@ -1,5 +1,12 @@
 from jose.collectors.registry import detect_adapter, match_known_ats_host
-from jose.collectors.utils import canonicalize_url, job_fingerprint, normalize_title
+from jose.collectors.utils import (
+    COMPANY_ALIAS_THRESHOLD,
+    FUZZY_MATCH_THRESHOLD,
+    canonicalize_url,
+    fuzzy_match_score,
+    job_fingerprint,
+    normalize_title,
+)
 
 
 def test_detect_adapter() -> None:
@@ -42,3 +49,40 @@ def test_parse_datetime_accepts_epoch_milliseconds() -> None:
     parsed = parse_datetime(1785157200000)
     assert parsed is not None
     assert parsed.tzinfo is not None
+
+
+def test_fuzzy_match_score_company_alias_clears_threshold():
+    scores = fuzzy_match_score(
+        "OpenAI",
+        "Software Engineer",
+        "San Francisco, CA",
+        "OpenAI, Inc.",
+        "Software Engineer",
+        "San Francisco, CA",
+    )
+    assert scores["company"] >= COMPANY_ALIAS_THRESHOLD
+    assert scores["composite"] >= FUZZY_MATCH_THRESHOLD
+
+
+def test_fuzzy_match_score_location_wording_clears_threshold():
+    scores = fuzzy_match_score(
+        "Acme", "Software Engineer", "San Francisco, CA",
+        "Acme", "Software Engineer", "SF, CA, US",
+    )
+    assert scores["composite"] >= FUZZY_MATCH_THRESHOLD
+
+
+def test_fuzzy_match_score_different_role_stays_below_threshold():
+    scores = fuzzy_match_score(
+        "Acme", "Backend Engineer", "San Francisco, CA",
+        "Acme", "Enterprise Sales Director", "San Francisco, CA",
+    )
+    assert scores["composite"] < FUZZY_MATCH_THRESHOLD
+
+
+def test_fuzzy_match_score_unrelated_company_fails_prefilter():
+    scores = fuzzy_match_score(
+        "Acme Robotics", "Software Engineer", "San Francisco, CA",
+        "Zephyr Logistics", "Warehouse Associate", "Austin, TX",
+    )
+    assert scores["company"] < COMPANY_ALIAS_THRESHOLD
