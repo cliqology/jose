@@ -32,6 +32,16 @@ class CollectionFrequency(StrEnum):
     MANUAL = "manual"
 
 
+class JobMergeAction(StrEnum):
+    MERGE = "merge"
+    DISMISS = "dismiss"
+
+
+class JobMergeKeep(StrEnum):
+    JOB = "job"
+    CANDIDATE = "candidate"
+
+
 class SourceCreate(BaseModel):
     name: str = Field(min_length=1, max_length=250)
     url: HttpUrl
@@ -93,6 +103,26 @@ class JobRead(BaseModel):
     first_seen_at: datetime
     last_seen_at: datetime
     status: str
+
+
+class JobMergeResolveRequest(BaseModel):
+    action: JobMergeAction
+    keep: JobMergeKeep | None = None
+
+
+class JobMergeCandidateRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    job_id: uuid.UUID
+    candidate_job_id: uuid.UUID
+    status: str
+    similarity_score: float
+    matched_signals: dict[str, float]
+    kept_job_id: uuid.UUID | None
+    merged_job_id: uuid.UUID | None
+    created_at: datetime
+    resolved_at: datetime | None
 
 
 class TaskRead(BaseModel):

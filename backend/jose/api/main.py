@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from jose.api.routes import admin, dashboard, health, imports, jobs, sources, tasks
+from jose.api.routes import admin, dashboard, health, imports, job_merge, jobs, sources, tasks
 from jose.config import get_settings
 from jose.db.session import SessionLocal
 from jose.services.users import get_or_create_default_user
@@ -35,5 +35,6 @@ app.include_router(dashboard.router)
 app.include_router(sources.router)
 app.include_router(imports.router)
 app.include_router(jobs.router)
+app.include_router(job_merge.router)
 app.include_router(tasks.router)
 app.include_router(admin.router)
