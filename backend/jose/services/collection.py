@@ -127,6 +127,15 @@ def _upsert_job(session: Session, source: Source, item: CollectedJob) -> tuple[b
     job = session.scalar(
         select(Job).where(Job.user_id == source.user_id, Job.fingerprint == fingerprint)
     )
+    if not job and item.ats_type and item.external_job_id:
+        job = session.scalar(
+            select(Job).where(
+                Job.user_id == source.user_id,
+                Job.ats_type == item.ats_type,
+                Job.external_job_id == item.external_job_id,
+                Job.status == "active",
+            )
+        )
     created = False
     updated = False
     if not job:
@@ -161,6 +170,7 @@ def _upsert_job(session: Session, source: Source, item: CollectedJob) -> tuple[b
         job.removed_at = None
         job.status = "active"
         if job.content_hash != content_hash:
+            job.fingerprint = fingerprint
             job.company_id = company.id
             job.title = item.title
             job.normalized_title = normalize_title(item.title)
