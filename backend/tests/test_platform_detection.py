@@ -10,6 +10,7 @@ from jose.services.platform_detection import (
     ProbeOutcome,
     detect_platforms_for_vc_sources,
     probe_source,
+    render_source_catalog,
 )
 from jose.services.sources import create_source
 
@@ -223,3 +224,46 @@ def test_detect_platforms_records_error_without_overwriting_adapter(
     assert source.adapter == "auto"
     assert source.detection_status == "error"
     assert source.last_error == "Rate limited by https://jobs.flaky.com/"
+
+
+def test_render_source_catalog_includes_vc_sources(db_session, user):
+    source = create_source(
+        db_session,
+        user,
+        SourceCreate(
+            name="Example VC",
+            url="https://jobs.examplevc.com/",
+            category=SourceCategory.VC_PORTFOLIO,
+        ),
+    )
+    source.detection_status = "supported"
+    source.adapter = "jsonld"
+    source.detected_platform = "jsonld"
+    source.detected_application_url = "https://jobs.examplevc.com/board"
+    db_session.commit()
+
+    text = render_source_catalog(db_session, user)
+
+    assert "Example VC" in text
+    assert "https://jobs.examplevc.com/" in text
+    assert "jsonld" in text
+    assert "supported" in text
+    assert "https://jobs.examplevc.com/board" in text
+    assert "## Notes" in text
+
+
+def test_render_source_catalog_handles_unprobed_source(db_session, user):
+    create_source(
+        db_session,
+        user,
+        SourceCreate(
+            name="Not Yet Probed",
+            url="https://jobs.notprobed.com/",
+            category=SourceCategory.VC_PORTFOLIO,
+        ),
+    )
+
+    text = render_source_catalog(db_session, user)
+
+    assert "Not Yet Probed" in text
+    assert "not probed" in text
