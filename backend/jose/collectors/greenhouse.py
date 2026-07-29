@@ -1,8 +1,11 @@
+import logging
 from urllib.parse import parse_qs, urlsplit
 
 from jose.collectors.base import CollectedJob, CollectionResult, CollectorError
 from jose.collectors.http import create_http_client, safe_get
 from jose.collectors.utils import html_to_text, parse_datetime
+
+logger = logging.getLogger(__name__)
 
 
 class GreenhouseCollector:
@@ -26,15 +29,34 @@ class GreenhouseCollector:
             response = safe_get(client, endpoint, params={"content": "true"})
             data = response.json()
 
+        if not isinstance(data, dict) or not isinstance(data.get("jobs"), list):
+            raise CollectorError(f"Unexpected Greenhouse response shape from {endpoint}")
+
         jobs: list[CollectedJob] = []
-        for item in data.get("jobs", []):
+        rejected_count = 0
+        for item in data["jobs"]:
+            if not isinstance(item, dict):
+                logger.warning("Skipping non-dict Greenhouse job entry: %r", item)
+                rejected_count += 1
+                continue
+
+            application_url = item.get("absolute_url")
+            if not application_url:
+                logger.warning(
+                    "Skipping Greenhouse job missing application URL: id=%s title=%s",
+                    item.get("id"),
+                    item.get("title"),
+                )
+                rejected_count += 1
+                continue
+
             departments = item.get("departments") or []
             jobs.append(
                 CollectedJob(
-                    company_name=source_name,
+                    company_name=item.get("company_name") or source_name,
                     title=item.get("title") or "Untitled role",
-                    application_url=item.get("absolute_url"),
-                    source_job_url=item.get("absolute_url"),
+                    application_url=application_url,
+                    source_job_url=application_url,
                     description_text=html_to_text(item.get("content")),
                     description_html=item.get("content"),
                     department=departments[0].get("name") if departments else None,
@@ -45,4 +67,4 @@ class GreenhouseCollector:
                     raw_payload=item,
                 )
             )
-        return CollectionResult(jobs=jobs)
+        return CollectionResult(jobs=jobs, rejected_count=rejected_count)

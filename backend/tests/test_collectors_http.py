@@ -94,6 +94,7 @@ def test_greenhouse_collector(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.jobs[0].title == "General Manager"
     assert result.jobs[0].description_text == "Own the business unit."
     assert result.jobs[0].external_job_id == "42"
+    assert result.jobs[0].company_name == "Example Co"
     assert result.rejected_count == 0
 
 
@@ -154,6 +155,42 @@ def test_ashby_collector_rejects_job_missing_application_url(
     patch_client(monkeypatch, "jose.collectors.ashby", FakeResponse(payload=payload))
 
     result = AshbyCollector().collect("Example", "https://jobs.ashbyhq.com/example")
+
+    assert len(result.jobs) == 1
+    assert result.rejected_count == 1
+
+
+def test_greenhouse_collector_returns_empty_for_no_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
+    patch_client(
+        monkeypatch,
+        "jose.collectors.greenhouse",
+        FakeResponse(payload={"jobs": []}),
+    )
+    result = GreenhouseCollector().collect("Example", "https://boards.greenhouse.io/example")
+    assert result.jobs == []
+    assert result.rejected_count == 0
+
+
+def test_greenhouse_collector_raises_on_malformed_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_client(
+        monkeypatch,
+        "jose.collectors.greenhouse",
+        FakeResponse(payload={"unexpected": "shape"}),
+    )
+    with pytest.raises(CollectorError):
+        GreenhouseCollector().collect("Example", "https://boards.greenhouse.io/example")
+
+
+def test_greenhouse_collector_rejects_job_missing_application_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = json_fixture("greenhouse.json")
+    payload["jobs"].append({"id": 99, "title": "No URL Role"})
+    patch_client(monkeypatch, "jose.collectors.greenhouse", FakeResponse(payload=payload))
+
+    result = GreenhouseCollector().collect("Example", "https://boards.greenhouse.io/example")
 
     assert len(result.jobs) == 1
     assert result.rejected_count == 1
