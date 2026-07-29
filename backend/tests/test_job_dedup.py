@@ -1,6 +1,6 @@
-from jose.models import JobMergeCandidate
-
 from conftest import _make_company, _make_job
+
+from jose.models import JobMergeCandidate
 
 
 def test_job_merged_into_job_id_defaults_to_none(db_session, user):
