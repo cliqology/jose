@@ -1,20 +1,23 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from jose.collectors import get_collector
 from jose.collectors.base import CollectedJob
 from jose.collectors.utils import (
+    COMPANY_ALIAS_THRESHOLD,
+    FUZZY_MATCH_THRESHOLD,
     canonicalize_url,
+    fuzzy_match_score,
     job_fingerprint,
     normalize_name,
     normalize_title,
     stable_hash,
 )
 from jose.config import get_settings
-from jose.models import Company, Job, JobSource, JobVersion, Source, SourceRun
+from jose.models import Company, Job, JobMergeCandidate, JobSource, JobVersion, Source, SourceRun
 
 
 def utcnow() -> datetime:
@@ -73,6 +76,74 @@ def collect_source(session: Session, source_id: uuid.UUID) -> SourceRun:
             source.last_error = f"{type(exc).__name__}: {exc}"[:4000]
             session.commit()
         raise
+
+
+def _find_fuzzy_candidate(
+    session: Session, user_id: uuid.UUID, company_name: str, title: str, location: str | None
+) -> tuple[Job, dict[str, float]] | None:
+    rows = session.execute(
+        select(Job, Company.name)
+        .join(Company, Company.id == Job.company_id)
+        .where(Job.user_id == user_id, Job.status == "active")
+    ).all()
+    best: tuple[Job, dict[str, float]] | None = None
+    for candidate_job, candidate_company_name in rows:
+        scores = fuzzy_match_score(
+            company_name,
+            title,
+            location or "",
+            candidate_company_name,
+            candidate_job.title,
+            candidate_job.location or "",
+        )
+        if scores["company"] < COMPANY_ALIAS_THRESHOLD:
+            continue
+        if scores["composite"] < FUZZY_MATCH_THRESHOLD:
+            continue
+        if best is None or scores["composite"] > best[1]["composite"]:
+            best = (candidate_job, scores)
+    return best
+
+
+def _flag_fuzzy_duplicate(
+    session: Session,
+    user_id: uuid.UUID,
+    new_job: Job,
+    candidate_job: Job,
+    scores: dict[str, float],
+) -> JobMergeCandidate | None:
+    existing = session.scalar(
+        select(JobMergeCandidate).where(
+            JobMergeCandidate.user_id == user_id,
+            JobMergeCandidate.status != "pending",
+            or_(
+                and_(
+                    JobMergeCandidate.job_id == new_job.id,
+                    JobMergeCandidate.candidate_job_id == candidate_job.id,
+                ),
+                and_(
+                    JobMergeCandidate.job_id == candidate_job.id,
+                    JobMergeCandidate.candidate_job_id == new_job.id,
+                ),
+            ),
+        )
+    )
+    if existing:
+        return None
+    merge_candidate = JobMergeCandidate(
+        user_id=user_id,
+        job_id=new_job.id,
+        candidate_job_id=candidate_job.id,
+        similarity_score=scores["composite"],
+        matched_signals={
+            "company": scores["company"],
+            "title": scores["title"],
+            "location": scores["location"],
+        },
+        status="pending",
+    )
+    session.add(merge_candidate)
+    return merge_candidate
 
 
 def _upsert_job(session: Session, source: Source, item: CollectedJob) -> tuple[bool, bool]:
@@ -139,6 +210,9 @@ def _upsert_job(session: Session, source: Source, item: CollectedJob) -> tuple[b
     created = False
     updated = False
     if not job:
+        fuzzy_match = _find_fuzzy_candidate(
+            session, source.user_id, company_name, item.title, item.location
+        )
         job = Job(
             user_id=source.user_id,
             company_id=company.id,
@@ -165,6 +239,9 @@ def _upsert_job(session: Session, source: Source, item: CollectedJob) -> tuple[b
         session.add(job)
         session.flush()
         created = True
+        if fuzzy_match is not None:
+            candidate_job, scores = fuzzy_match
+            _flag_fuzzy_duplicate(session, source.user_id, job, candidate_job, scores)
     else:
         job.last_seen_at = utcnow()
         job.removed_at = None
