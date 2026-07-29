@@ -14,7 +14,7 @@ const CATEGORIES = [
   "user_added",
 ];
 
-const ADAPTERS = ["auto", "ashby", "greenhouse", "lever", "jsonld"];
+const ADAPTERS = ["auto", "ashby", "greenhouse", "lever", "jsonld", "unsupported"];
 
 const FREQUENCIES = ["hourly", "every_6_hours", "twice_daily", "daily", "weekly", "manual"];
 

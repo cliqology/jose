@@ -29,6 +29,48 @@ def html_to_text(value: str | None) -> str | None:
     return normalize_whitespace(BeautifulSoup(unescape(value), "html.parser").get_text(" "))
 
 
+def _is_job_posting_type(value: object) -> bool:
+    if isinstance(value, str):
+        return value == "JobPosting"
+    if isinstance(value, list):
+        return "JobPosting" in value
+    return False
+
+
+def _find_job_postings(value: object) -> list[dict]:
+    results: list[dict] = []
+    if isinstance(value, dict):
+        if _is_job_posting_type(value.get("@type")):
+            results.append(value)
+        graph = value.get("@graph")
+        if graph:
+            results.extend(_find_job_postings(graph))
+        for key, child in value.items():
+            if key != "@graph" and isinstance(child, (dict, list)):
+                results.extend(_find_job_postings(child))
+    elif isinstance(value, list):
+        for child in value:
+            results.extend(_find_job_postings(child))
+    return results
+
+
+def find_json_ld_postings(html: str) -> list[dict]:
+    """Parse `<script type="application/ld+json">` tags and return JobPosting records.
+
+    Matches both the plain-string form (`"@type": "JobPosting"`) and schema.org's
+    list form (`"@type": ["JobPosting", "SomeOtherType"]`).
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    results: list[dict] = []
+    for tag in soup.find_all("script", attrs={"type": "application/ld+json"}):
+        try:
+            parsed = json.loads(tag.string or tag.get_text())
+        except json.JSONDecodeError:
+            continue
+        results.extend(_find_job_postings(parsed))
+    return results
+
+
 def canonicalize_url(value: str) -> str:
     parts = urlsplit(value)
     query = [

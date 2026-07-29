@@ -151,6 +151,20 @@ def test_jsonld_collector(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.rejected_count == 0
 
 
+def test_jsonld_collector_matches_list_form_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    patch_client(
+        monkeypatch,
+        "jose.collectors.jsonld",
+        FakeResponse(text=(FIXTURES / "jobposting_list_type.html").read_text()),
+    )
+    result = JsonLdCollector().collect("Fallback Name", "https://example.com/careers")
+    assert len(result.jobs) == 1
+    assert result.jobs[0].company_name == "Example Labs"
+    assert result.jobs[0].location == "New York, NY, US"
+    assert result.jobs[0].employment_type == "FULL_TIME"
+    assert result.rejected_count == 0
+
+
 def test_ashby_collector_returns_empty_for_no_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
     patch_client(
         monkeypatch,

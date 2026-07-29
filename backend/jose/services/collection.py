@@ -34,7 +34,12 @@ def collect_source(session: Session, source_id: uuid.UUID) -> SourceRun:
 
     try:
         collector = get_collector(source.url, source.adapter)
-        result = collector.collect(source.name, source.url)
+        collect_url = (
+            source.detected_application_url
+            if source.detection_status == "supported" and source.detected_application_url
+            else source.url
+        )
+        result = collector.collect(source.name, collect_url)
         created = 0
         updated = 0
         for item in result.jobs:

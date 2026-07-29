@@ -78,6 +78,23 @@ def test_probe_source_detects_json_ld_job_posting(monkeypatch: pytest.MonkeyPatc
     assert outcome.detected_platform == "jsonld"
 
 
+def test_probe_source_detects_json_ld_job_posting_with_list_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    html = (
+        '<html><body><script type="application/ld+json">'
+        '{"@type": ["JobPosting", "SomeOtherType"], "title": "Engineer"}'
+        "</script></body></html>"
+    )
+    patch_client(monkeypatch, FakeResponse(text=html, final_url="https://jobs.examplevc.com/"))
+
+    outcome = probe_source("https://jobs.examplevc.com/")
+
+    assert outcome.status == "supported"
+    assert outcome.adapter == "jsonld"
+    assert outcome.detected_platform == "jsonld"
+
+
 def test_probe_source_matches_aggregator_signature(monkeypatch: pytest.MonkeyPatch) -> None:
     needle, platform = next(iter(AGGREGATOR_SIGNATURES.items()))
     patch_client(monkeypatch, FakeResponse(final_url=f"https://jobs.examplevc.{needle}"))
@@ -224,6 +241,137 @@ def test_detect_platforms_records_error_without_overwriting_adapter(
     assert source.adapter == "auto"
     assert source.detection_status == "error"
     assert source.last_error == "Rate limited by https://jobs.flaky.com/"
+
+
+def test_detect_platforms_survives_unexpected_error_mid_batch(db_session, user, monkeypatch):
+    source_one = create_source(
+        db_session,
+        user,
+        SourceCreate(
+            name="One", url="https://jobs.one.com/", category=SourceCategory.VC_PORTFOLIO
+        ),
+    )
+    source_two = create_source(
+        db_session,
+        user,
+        SourceCreate(
+            name="Two", url="https://jobs.two.com/", category=SourceCategory.VC_PORTFOLIO
+        ),
+    )
+    source_three = create_source(
+        db_session,
+        user,
+        SourceCreate(
+            name="Three", url="https://jobs.three.com/", category=SourceCategory.VC_PORTFOLIO
+        ),
+    )
+
+    def fake_probe(url: str) -> ProbeOutcome:
+        if url == source_two.url:
+            # Simulate a transport-level failure that is not a CollectorError,
+            # and not even caught inside probe_source itself.
+            raise httpx.ConnectTimeout("connection timed out")
+        return ProbeOutcome(
+            status="supported",
+            adapter="jsonld",
+            detected_platform="jsonld",
+            detected_application_url=url,
+            error=None,
+        )
+
+    monkeypatch.setattr("jose.services.platform_detection.probe_source", fake_probe)
+
+    results = detect_platforms_for_vc_sources(db_session, user)
+
+    assert len(results) == 3
+    db_session.refresh(source_one)
+    db_session.refresh(source_two)
+    db_session.refresh(source_three)
+
+    # Every source ends up with SOME detection_status set — nothing was aborted.
+    assert source_one.detection_status is not None
+    assert source_two.detection_status is not None
+    assert source_three.detection_status is not None
+
+    # The source that raised gets an error outcome...
+    assert source_two.detection_status == "error"
+    assert source_two.last_error is not None
+
+    # ...while the successfully-probed sources are preserved, not rolled back.
+    assert source_one.detection_status == "supported"
+    assert source_one.detected_platform == "jsonld"
+    assert source_three.detection_status == "supported"
+    assert source_three.detected_platform == "jsonld"
+
+
+def test_detect_platforms_error_does_not_wipe_previous_detection(db_session, user, monkeypatch):
+    source = create_source(
+        db_session,
+        user,
+        SourceCreate(
+            name="Previously Supported",
+            url="https://jobs.previously-good.com/",
+            category=SourceCategory.VC_PORTFOLIO,
+        ),
+    )
+    source.adapter = "greenhouse"
+    source.detection_status = "supported"
+    source.detected_platform = "greenhouse"
+    source.detected_application_url = "https://boards.greenhouse.io/previously-good"
+    db_session.commit()
+
+    def fake_probe(url: str) -> ProbeOutcome:
+        return ProbeOutcome(
+            status="error",
+            adapter=None,
+            detected_platform=None,
+            detected_application_url=None,
+            error="ConnectTimeout: timed out",
+        )
+
+    monkeypatch.setattr("jose.services.platform_detection.probe_source", fake_probe)
+
+    detect_platforms_for_vc_sources(db_session, user)
+
+    db_session.refresh(source)
+    assert source.detection_status == "error"
+    assert source.last_error == "ConnectTimeout: timed out"
+    # Previously captured canonical URL/platform/adapter must not be wiped by a
+    # transient re-probe failure.
+    assert source.adapter == "greenhouse"
+    assert source.detected_platform == "greenhouse"
+    assert source.detected_application_url == "https://boards.greenhouse.io/previously-good"
+
+
+def test_detect_platforms_clears_last_error_on_success(db_session, user, monkeypatch):
+    source = create_source(
+        db_session,
+        user,
+        SourceCreate(
+            name="Recovered",
+            url="https://jobs.recovered.com/",
+            category=SourceCategory.VC_PORTFOLIO,
+        ),
+    )
+    source.last_error = "Rate limited by https://jobs.recovered.com/"
+    db_session.commit()
+
+    def fake_probe(url: str) -> ProbeOutcome:
+        return ProbeOutcome(
+            status="supported",
+            adapter="jsonld",
+            detected_platform="jsonld",
+            detected_application_url=url,
+            error=None,
+        )
+
+    monkeypatch.setattr("jose.services.platform_detection.probe_source", fake_probe)
+
+    detect_platforms_for_vc_sources(db_session, user)
+
+    db_session.refresh(source)
+    assert source.detection_status == "supported"
+    assert source.last_error is None
 
 
 def test_render_source_catalog_includes_vc_sources(db_session, user):

@@ -1,9 +1,8 @@
-import json
 import uuid
-from typing import Any, Literal
+from typing import Literal
 from urllib.parse import urlsplit
 
-from bs4 import BeautifulSoup
+import httpx
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,6 +10,7 @@ from sqlalchemy.orm import Session
 from jose.collectors.base import CollectorError
 from jose.collectors.http import create_http_client, safe_get
 from jose.collectors.registry import match_known_ats_host
+from jose.collectors.utils import find_json_ld_postings
 from jose.models import Source, User
 from jose.models.base import utcnow
 
@@ -31,33 +31,8 @@ class ProbeOutcome(BaseModel):
     error: str | None
 
 
-def _has_job_posting(value: Any) -> bool:
-    if isinstance(value, dict):
-        if value.get("@type") == "JobPosting":
-            return True
-        graph = value.get("@graph")
-        if graph and _has_job_posting(graph):
-            return True
-        return any(
-            _has_job_posting(child)
-            for key, child in value.items()
-            if key != "@graph" and isinstance(child, (dict, list))
-        )
-    if isinstance(value, list):
-        return any(_has_job_posting(item) for item in value)
-    return False
-
-
 def _contains_json_ld_job_posting(html: str) -> bool:
-    soup = BeautifulSoup(html, "html.parser")
-    for tag in soup.find_all("script", attrs={"type": "application/ld+json"}):
-        try:
-            parsed = json.loads(tag.string or tag.get_text())
-        except json.JSONDecodeError:
-            continue
-        if _has_job_posting(parsed):
-            return True
-    return False
+    return bool(find_json_ld_postings(html))
 
 
 def _match_aggregator_signature(host: str, html: str) -> str | None:
@@ -71,7 +46,7 @@ def probe_source(url: str) -> ProbeOutcome:
     try:
         with create_http_client() as client:
             response = safe_get(client, url)
-    except CollectorError as exc:
+    except (CollectorError, httpx.HTTPError) as exc:
         return ProbeOutcome(
             status="error",
             adapter=None,
@@ -145,14 +120,25 @@ def detect_platforms_for_vc_sources(session: Session, user: User) -> list[ProbeR
 
     results: list[ProbeResult] = []
     for source in sources:
-        outcome = probe_source(source.url)
+        try:
+            outcome = probe_source(source.url)
+        except Exception as exc:  # noqa: BLE001 - a bad source must never abort the batch
+            outcome = ProbeOutcome(
+                status="error",
+                adapter=None,
+                detected_platform=None,
+                detected_application_url=None,
+                error=str(exc),
+            )
+
         if outcome.status != "error":
             source.adapter = outcome.adapter
+            source.detected_platform = outcome.detected_platform
+            source.detected_application_url = outcome.detected_application_url
+            source.last_error = None
         else:
             source.last_error = outcome.error
-        source.detected_platform = outcome.detected_platform
         source.detection_status = outcome.status
-        source.detected_application_url = outcome.detected_application_url
         source.detected_at = utcnow()
         results.append(
             ProbeResult(
@@ -166,7 +152,8 @@ def detect_platforms_for_vc_sources(session: Session, user: User) -> list[ProbeR
             )
         )
 
-    session.commit()
+        session.commit()
+
     return results
 
 

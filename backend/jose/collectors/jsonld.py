@@ -1,12 +1,9 @@
-import json
 from collections.abc import Iterable
 from typing import Any
 
-from bs4 import BeautifulSoup
-
 from jose.collectors.base import CollectedJob, CollectionResult, CollectorError
 from jose.collectors.http import create_http_client, safe_get
-from jose.collectors.utils import html_to_text, parse_datetime
+from jose.collectors.utils import find_json_ld_postings, html_to_text, parse_datetime
 
 
 class JsonLdCollector:
@@ -16,14 +13,7 @@ class JsonLdCollector:
         with create_http_client() as client:
             response = safe_get(client, source_url)
 
-        soup = BeautifulSoup(response.text, "html.parser")
-        postings: list[dict[str, Any]] = []
-        for tag in soup.find_all("script", attrs={"type": "application/ld+json"}):
-            try:
-                parsed = json.loads(tag.string or tag.get_text())
-            except json.JSONDecodeError:
-                continue
-            postings.extend(self._find_postings(parsed))
+        postings = find_json_ld_postings(response.text)
 
         if not postings:
             raise CollectorError("No JSON-LD JobPosting records found")
@@ -50,22 +40,6 @@ class JsonLdCollector:
                 )
             )
         return CollectionResult(jobs=jobs)
-
-    def _find_postings(self, value: Any) -> list[dict[str, Any]]:
-        results: list[dict[str, Any]] = []
-        if isinstance(value, dict):
-            if value.get("@type") == "JobPosting":
-                results.append(value)
-            graph = value.get("@graph")
-            if graph:
-                results.extend(self._find_postings(graph))
-            for key, child in value.items():
-                if key != "@graph" and isinstance(child, (dict, list)):
-                    results.extend(self._find_postings(child))
-        elif isinstance(value, list):
-            for child in value:
-                results.extend(self._find_postings(child))
-        return results
 
     @staticmethod
     def _location(value: Any) -> str | None:
