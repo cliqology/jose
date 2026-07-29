@@ -8,6 +8,19 @@ from jose.collectors.utils import html_to_text, parse_datetime
 logger = logging.getLogger(__name__)
 
 
+def _as_integer_compensation(value: object) -> int | None:
+    # Ashby represents hourly-rate comp as a fractional dollar amount (e.g. 60.58);
+    # our schema stores whole-dollar integers, so a non-integer value is unknown,
+    # not something to round or truncate.
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return None
+
+
 class AshbyCollector:
     name = "ashby"
 
@@ -63,8 +76,8 @@ class AshbyCollector:
                     remote_type=item.get("workplaceType")
                     or ("Remote" if item.get("isRemote") else None),
                     employment_type=item.get("employmentType"),
-                    compensation_min=salary.get("minValue"),
-                    compensation_max=salary.get("maxValue"),
+                    compensation_min=_as_integer_compensation(salary.get("minValue")),
+                    compensation_max=_as_integer_compensation(salary.get("maxValue")),
                     currency=salary.get("currencyCode"),
                     ats_type="ashby",
                     external_job_id=item.get("id") or item.get("jobUrl"),

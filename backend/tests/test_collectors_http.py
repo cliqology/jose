@@ -199,6 +199,38 @@ def test_ashby_collector_rejects_job_missing_application_url(
     assert result.rejected_count == 1
 
 
+def test_ashby_collector_treats_fractional_hourly_compensation_as_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = json_fixture("ashby.json")
+    payload["jobs"].append(
+        {
+            "id": "ashby-3",
+            "title": "Contractor Role",
+            "applyUrl": "https://jobs.ashbyhq.com/example/ashby-3/application",
+            "compensation": {
+                "summaryComponents": [
+                    {
+                        "compensationType": "Salary",
+                        "interval": "1 HOUR",
+                        "minValue": 60.58,
+                        "maxValue": 108.17,
+                        "currencyCode": "USD",
+                    }
+                ]
+            },
+        }
+    )
+    patch_client(monkeypatch, "jose.collectors.ashby", FakeResponse(payload=payload))
+
+    result = AshbyCollector().collect("Example", "https://jobs.ashbyhq.com/example")
+
+    assert result.rejected_count == 0
+    contractor_role = next(job for job in result.jobs if job.title == "Contractor Role")
+    assert contractor_role.compensation_min is None
+    assert contractor_role.compensation_max is None
+
+
 def test_greenhouse_collector_returns_empty_for_no_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
     patch_client(
         monkeypatch,

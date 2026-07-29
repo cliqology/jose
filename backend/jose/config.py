@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     collector_timeout_seconds: float = 30.0
     collector_user_agent: str = "JOSE-Collector/1.0"
     collector_max_redirects: int = 5
-    collector_max_response_bytes: int = 5 * 1024 * 1024
+    collector_max_response_bytes: int = 20 * 1024 * 1024
     collector_retain_raw_payload: bool = True
     worker_poll_seconds: float = 2.0
     worker_id: str = "jose-worker"
