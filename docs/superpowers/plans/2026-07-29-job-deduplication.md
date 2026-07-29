@@ -27,24 +27,22 @@
 **Files:**
 - Modify: `backend/jose/models/core.py:5-13` (import), `:136` (Job column), `:170` (new class insertion point)
 - Modify: `backend/jose/models/__init__.py`
+- Modify: `backend/tests/conftest.py` (shared test-data helpers, reused by Tasks 4, 5, and 6)
 - Create: `backend/alembic/versions/0005_job_merge_candidates.py`
 - Test: `backend/tests/test_job_dedup.py` (new file)
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks (this is the first task).
-- Produces: `jose.models.Job.merged_into_job_id: uuid.UUID | None`. `jose.models.JobMergeCandidate` with fields `id, user_id, job_id, candidate_job_id, similarity_score: float, matched_signals: dict, status: str, resolved_at: datetime | None, kept_job_id: uuid.UUID | None, merged_job_id: uuid.UUID | None, moved_job_source_ids: list[str], moved_job_version_ids: list[str]`. Every later task imports `JobMergeCandidate` from `jose.models`.
+- Produces: `jose.models.Job.merged_into_job_id: uuid.UUID | None`. `jose.models.JobMergeCandidate` with fields `id, user_id, job_id, candidate_job_id, similarity_score: float, matched_signals: dict, status: str, resolved_at: datetime | None, kept_job_id: uuid.UUID | None, merged_job_id: uuid.UUID | None, moved_job_source_ids: list[str], moved_job_version_ids: list[str]`. Every later task imports `JobMergeCandidate` from `jose.models`. Also produces three test-data helpers in `backend/tests/conftest.py` — `_make_company(session, user, name="Acme")`, `_make_job(session, user, company, **overrides)`, `_make_candidate(session, user, job, candidate_job, **overrides)` — that Tasks 4, 5, and 6 import via `from conftest import ...` (no `tests/__init__.py` exists, so pytest's rootdir-relative import mode makes this valid) instead of redefining them.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Add shared test-data helpers to `conftest.py`**
 
-Create `backend/tests/test_job_dedup.py`:
+Add to the end of `backend/tests/conftest.py` (after the existing `client` fixture):
 
 ```python
-import uuid
-
-from jose.models import Company, Job, JobMergeCandidate
-
-
 def _make_company(session, user, name="Acme"):
+    from jose.models import Company
+
     company = Company(user_id=user.id, name=name, normalized_name=name.lower())
     session.add(company)
     session.flush()
@@ -52,6 +50,10 @@ def _make_company(session, user, name="Acme"):
 
 
 def _make_job(session, user, company, **overrides):
+    import uuid as _uuid
+
+    from jose.models import Job
+
     defaults = dict(
         user_id=user.id,
         company_id=company.id,
@@ -60,14 +62,44 @@ def _make_job(session, user, company, **overrides):
         location="San Francisco, CA",
         application_url="https://acme.example.com/jobs/1",
         canonical_url="https://acme.example.com/jobs/1",
-        fingerprint=uuid.uuid4().hex,
-        content_hash=uuid.uuid4().hex,
+        fingerprint=_uuid.uuid4().hex,
+        content_hash=_uuid.uuid4().hex,
     )
     defaults.update(overrides)
     job = Job(**defaults)
     session.add(job)
     session.flush()
     return job
+
+
+def _make_candidate(session, user, job, candidate_job, **overrides):
+    from jose.models import JobMergeCandidate
+
+    defaults = dict(
+        user_id=user.id,
+        job_id=job.id,
+        candidate_job_id=candidate_job.id,
+        similarity_score=0.9,
+        matched_signals={"company": 1.0, "title": 1.0, "location": 1.0},
+        status="pending",
+    )
+    defaults.update(overrides)
+    candidate = JobMergeCandidate(**defaults)
+    session.add(candidate)
+    session.flush()
+    return candidate
+```
+
+These use function-local imports (rather than adding `Company`/`Job`/`JobMergeCandidate`/`uuid` to `conftest.py`'s module-level imports) because `JobMergeCandidate` does not exist yet at this point in this exact task — it is added to `jose.models` later in this same task's Step 4. Once Step 4 lands, the local imports still work correctly and there is no need to move them: consistency of the three helpers matters more than which import style each uses, and touching this again later is unnecessary churn.
+
+- [ ] **Step 2: Write the failing test**
+
+Create `backend/tests/test_job_dedup.py`:
+
+```python
+from jose.models import JobMergeCandidate
+
+from conftest import _make_company, _make_job
 
 
 def test_job_merged_into_job_id_defaults_to_none(db_session, user):
@@ -83,11 +115,7 @@ def test_job_merge_candidate_persists_fields(db_session, user):
     company = _make_company(db_session, user)
     job = _make_job(db_session, user, company, application_url="https://acme.example.com/jobs/1")
     candidate_job = _make_job(
-        db_session,
-        user,
-        company,
-        application_url="https://acme.example.com/jobs/2",
-        fingerprint=uuid.uuid4().hex,
+        db_session, user, company, application_url="https://acme.example.com/jobs/2"
     )
 
     candidate = JobMergeCandidate(
@@ -110,12 +138,12 @@ def test_job_merge_candidate_persists_fields(db_session, user):
     assert candidate.moved_job_version_ids == []
 ```
 
-- [ ] **Step 2: Run the new tests to verify they fail**
+- [ ] **Step 3: Run the new tests to verify they fail**
 
 Run: `docker compose run --rm api pytest tests/test_job_dedup.py -v`
 Expected: FAIL — `ImportError: cannot import name 'JobMergeCandidate' from 'jose.models'`
 
-- [ ] **Step 3: Add the `merged_into_job_id` column to `Job`**
+- [ ] **Step 4: Add the `merged_into_job_id` column to `Job`**
 
 In `backend/jose/models/core.py`, add `Float` to the existing `sqlalchemy` import block (around line 5-13) so it reads:
 
@@ -156,7 +184,7 @@ to:
     company: Mapped[Company] = relationship()
 ```
 
-- [ ] **Step 4: Add the `JobMergeCandidate` model**
+- [ ] **Step 5: Add the `JobMergeCandidate` model**
 
 In `backend/jose/models/core.py`, immediately after the `JobVersion` class (after its `snapshot` column, before the blank lines leading into `class Task`), insert:
 
@@ -185,7 +213,7 @@ class JobMergeCandidate(UUIDPrimaryKeyMixin, TimestampMixin, UserOwnedMixin, Bas
     moved_job_version_ids: Mapped[list[Any]] = mapped_column(JSONB, default=list)
 ```
 
-- [ ] **Step 5: Export `JobMergeCandidate` from the models package**
+- [ ] **Step 6: Export `JobMergeCandidate` from the models package**
 
 In `backend/jose/models/__init__.py`, add it to both the import and `__all__`:
 
@@ -219,7 +247,7 @@ __all__ = [
 ]
 ```
 
-- [ ] **Step 6: Write the migration**
+- [ ] **Step 7: Write the migration**
 
 Create `backend/alembic/versions/0005_job_merge_candidates.py`:
 
@@ -300,15 +328,15 @@ def downgrade() -> None:
     op.drop_column("jobs", "merged_into_job_id")
 ```
 
-- [ ] **Step 7: Apply the migration and run the tests**
+- [ ] **Step 8: Apply the migration and run the tests**
 
 Run: `docker compose run --rm api sh -c "alembic upgrade head && pytest tests/test_job_dedup.py -v"`
 Expected: PASS (2 tests)
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add backend/jose/models/core.py backend/jose/models/__init__.py backend/alembic/versions/0005_job_merge_candidates.py backend/tests/test_job_dedup.py
+git add backend/jose/models/core.py backend/jose/models/__init__.py backend/tests/conftest.py backend/alembic/versions/0005_job_merge_candidates.py backend/tests/test_job_dedup.py
 git commit -m "feat: add job_merge_candidates table and Job.merged_into_job_id"
 ```
 
@@ -442,24 +470,29 @@ git commit -m "feat: add difflib-based fuzzy match scoring for job dedup"
 First, update the import block at the top of `backend/tests/test_job_dedup.py` — change:
 
 ```python
-import uuid
+from jose.models import JobMergeCandidate
 
-from jose.models import Company, Job, JobMergeCandidate
+from conftest import _make_company, _make_job
 ```
 
 to:
 
 ```python
-import uuid
-
 from sqlalchemy import select
 
 from jose.collectors.base import CollectedJob, CollectionResult
-from jose.models import Company, Job, JobMergeCandidate
+from jose.models import Job, JobMergeCandidate
 from jose.schemas import SourceCreate
 from jose.services.collection import collect_source
 from jose.services.sources import create_source
+
+from conftest import _make_company, _make_job
 ```
+
+(`Company` is dropped from this import — Task 1's tests never used it directly, it was only ever
+needed by the `_make_company`/`_make_job` helpers, which now live in `conftest.py`. If `ruff
+check` reports an import-sort ordering complaint on this block, run `ruff check --fix` — it is
+auto-fixable and not worth hand-verifying against isort rules in this plan.)
 
 Then add the fake collector and the test to the end of `backend/tests/test_job_dedup.py`:
 
@@ -885,7 +918,9 @@ git commit -m "feat: flag fuzzy job duplicates for review instead of auto-mergin
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `backend/tests/test_job_merge_service.py`:
+Create `backend/tests/test_job_merge_service.py`. `_make_company`, `_make_job`, and
+`_make_candidate` come from `backend/tests/conftest.py` (added in Task 1) — do not redefine
+them here:
 
 ```python
 import uuid
@@ -893,7 +928,7 @@ import uuid
 import pytest
 from sqlalchemy import select
 
-from jose.models import Company, Job, JobMergeCandidate, JobSource, JobVersion, SystemEvent
+from jose.models import JobSource, JobVersion, SystemEvent
 from jose.services.job_merge import (
     MergeCandidateNotFoundError,
     MergeCandidateNotMergedError,
@@ -904,47 +939,7 @@ from jose.services.job_merge import (
     unmerge_candidate,
 )
 
-
-def _make_company(session, user, name="Acme"):
-    company = Company(user_id=user.id, name=name, normalized_name=name.lower())
-    session.add(company)
-    session.flush()
-    return company
-
-
-def _make_job(session, user, company, **overrides):
-    defaults = dict(
-        user_id=user.id,
-        company_id=company.id,
-        title="Software Engineer",
-        normalized_title="software engineer",
-        location="San Francisco, CA",
-        application_url="https://acme.example.com/jobs/1",
-        canonical_url="https://acme.example.com/jobs/1",
-        fingerprint=uuid.uuid4().hex,
-        content_hash=uuid.uuid4().hex,
-    )
-    defaults.update(overrides)
-    job = Job(**defaults)
-    session.add(job)
-    session.flush()
-    return job
-
-
-def _make_candidate(session, user, job, candidate_job, **overrides):
-    defaults = dict(
-        user_id=user.id,
-        job_id=job.id,
-        candidate_job_id=candidate_job.id,
-        similarity_score=0.9,
-        matched_signals={"company": 1.0, "title": 1.0, "location": 1.0},
-        status="pending",
-    )
-    defaults.update(overrides)
-    candidate = JobMergeCandidate(**defaults)
-    session.add(candidate)
-    session.flush()
-    return candidate
+from conftest import _make_candidate, _make_company, _make_job
 
 
 def test_list_merge_candidates_filters_by_status_and_user(db_session, user, other_user):
@@ -1351,52 +1346,14 @@ Note on scope: the spec mentioned a `JobStatus` schema enum for symmetry with `S
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `backend/tests/test_job_merge_api.py`:
+Create `backend/tests/test_job_merge_api.py`. `_make_company`, `_make_job`, and
+`_make_candidate` come from `backend/tests/conftest.py` (added in Task 1) — do not redefine
+them here:
 
 ```python
 import uuid
 
-from jose.models import Company, Job, JobMergeCandidate
-
-
-def _make_company(session, user, name="Acme"):
-    company = Company(user_id=user.id, name=name, normalized_name=name.lower())
-    session.add(company)
-    session.flush()
-    return company
-
-
-def _make_job(session, user, company, **overrides):
-    defaults = dict(
-        user_id=user.id,
-        company_id=company.id,
-        title="Software Engineer",
-        normalized_title="software engineer",
-        location="San Francisco, CA",
-        application_url="https://acme.example.com/jobs/1",
-        canonical_url="https://acme.example.com/jobs/1",
-        fingerprint=uuid.uuid4().hex,
-        content_hash=uuid.uuid4().hex,
-    )
-    defaults.update(overrides)
-    job = Job(**defaults)
-    session.add(job)
-    session.flush()
-    return job
-
-
-def _make_candidate(session, user, job, candidate_job):
-    candidate = JobMergeCandidate(
-        user_id=user.id,
-        job_id=job.id,
-        candidate_job_id=candidate_job.id,
-        similarity_score=0.9,
-        matched_signals={"company": 1.0, "title": 1.0, "location": 1.0},
-        status="pending",
-    )
-    session.add(candidate)
-    session.flush()
-    return candidate
+from conftest import _make_candidate, _make_company, _make_job
 
 
 def test_list_job_merge_candidates_returns_job_summaries(client, db_session, user):
