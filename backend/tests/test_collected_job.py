@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from jose.collectors.base import CollectedJob
+from jose.collectors.base import CollectedJob, CollectionResult
 
 
 def test_collected_job_rejects_bad_field_type() -> None:
@@ -41,3 +41,18 @@ def test_collected_job_is_frozen() -> None:
     )
     with pytest.raises(ValidationError):
         job.title = "Changed"
+
+
+def test_collection_result_defaults_rejected_count_to_zero() -> None:
+    job = CollectedJob(
+        company_name="Acme", title="Engineer", application_url="https://acme.example/jobs/1"
+    )
+    result = CollectionResult(jobs=[job])
+    assert result.jobs == [job]
+    assert result.rejected_count == 0
+
+
+def test_collection_result_is_frozen() -> None:
+    result = CollectionResult(jobs=[])
+    with pytest.raises(ValidationError):
+        result.rejected_count = 5

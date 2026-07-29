@@ -4,7 +4,7 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
-from jose.collectors.base import CollectedJob, CollectorError
+from jose.collectors.base import CollectedJob, CollectionResult, CollectorError
 from jose.collectors.http import create_http_client, safe_get
 from jose.collectors.utils import html_to_text, parse_datetime
 
@@ -12,7 +12,7 @@ from jose.collectors.utils import html_to_text, parse_datetime
 class JsonLdCollector:
     name = "jsonld"
 
-    def collect(self, source_name: str, source_url: str) -> list[CollectedJob]:
+    def collect(self, source_name: str, source_url: str) -> CollectionResult:
         with create_http_client() as client:
             response = safe_get(client, source_url)
 
@@ -49,7 +49,7 @@ class JsonLdCollector:
                     raw_payload=item,
                 )
             )
-        return jobs
+        return CollectionResult(jobs=jobs)
 
     def _find_postings(self, value: Any) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []

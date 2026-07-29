@@ -3,6 +3,7 @@
     {
       "id": 42,
       "title": "General Manager",
+      "company_name": "Example Co",
       "absolute_url": "https://boards.greenhouse.io/example/jobs/42",
       "content": "<p>Own the business unit.</p>",
       "departments": [{"name": "Executive"}],

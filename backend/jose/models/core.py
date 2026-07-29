@@ -66,6 +66,7 @@ class SourceRun(UUIDPrimaryKeyMixin, TimestampMixin, UserOwnedMixin, Base):
     jobs_found: Mapped[int] = mapped_column(Integer, default=0)
     jobs_created: Mapped[int] = mapped_column(Integer, default=0)
     jobs_updated: Mapped[int] = mapped_column(Integer, default=0)
+    jobs_rejected: Mapped[int] = mapped_column(Integer, default=0)
     error_type: Mapped[str | None] = mapped_column(String(150))
     error_message: Mapped[str | None] = mapped_column(Text)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)

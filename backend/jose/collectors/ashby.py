@@ -1,14 +1,17 @@
+import logging
 from urllib.parse import urlsplit
 
-from jose.collectors.base import CollectedJob, CollectorError
+from jose.collectors.base import CollectedJob, CollectionResult, CollectorError
 from jose.collectors.http import create_http_client, safe_get
 from jose.collectors.utils import html_to_text, parse_datetime
+
+logger = logging.getLogger(__name__)
 
 
 class AshbyCollector:
     name = "ashby"
 
-    def collect(self, source_name: str, source_url: str) -> list[CollectedJob]:
+    def collect(self, source_name: str, source_url: str) -> CollectionResult:
         board_name = urlsplit(source_url).path.strip("/").split("/")[0]
         if not board_name:
             raise CollectorError("Unable to determine Ashby job-board name")
@@ -18,8 +21,27 @@ class AshbyCollector:
             response = safe_get(client, endpoint, params={"includeCompensation": "true"})
             data = response.json()
 
+        if not isinstance(data, dict) or not isinstance(data.get("jobs"), list):
+            raise CollectorError(f"Unexpected Ashby response shape from {endpoint}")
+
         jobs: list[CollectedJob] = []
-        for item in data.get("jobs", []):
+        rejected_count = 0
+        for item in data["jobs"]:
+            if not isinstance(item, dict):
+                logger.warning("Skipping non-dict Ashby job entry: %r", item)
+                rejected_count += 1
+                continue
+
+            application_url = item.get("applyUrl") or item.get("jobUrl")
+            if not application_url:
+                logger.warning(
+                    "Skipping Ashby job missing application URL: id=%s title=%s",
+                    item.get("id"),
+                    item.get("title"),
+                )
+                rejected_count += 1
+                continue
+
             compensation = item.get("compensation") or {}
             salary_components = [
                 component
@@ -31,7 +53,7 @@ class AshbyCollector:
                 CollectedJob(
                     company_name=source_name,
                     title=item.get("title") or "Untitled role",
-                    application_url=item.get("applyUrl") or item.get("jobUrl"),
+                    application_url=application_url,
                     source_job_url=item.get("jobUrl"),
                     description_text=item.get("descriptionPlain")
                     or html_to_text(item.get("descriptionHtml")),
@@ -50,4 +72,4 @@ class AshbyCollector:
                     raw_payload=item,
                 )
             )
-        return jobs
+        return CollectionResult(jobs=jobs, rejected_count=rejected_count)

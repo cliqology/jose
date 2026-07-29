@@ -13,6 +13,7 @@ from jose.collectors.utils import (
     normalize_title,
     stable_hash,
 )
+from jose.config import get_settings
 from jose.models import Company, Job, JobSource, JobVersion, Source, SourceRun
 
 
@@ -33,10 +34,10 @@ def collect_source(session: Session, source_id: uuid.UUID) -> SourceRun:
 
     try:
         collector = get_collector(source.url, source.adapter)
-        collected = collector.collect(source.name, source.url)
+        result = collector.collect(source.name, source.url)
         created = 0
         updated = 0
-        for item in collected:
+        for item in result.jobs:
             was_created, was_updated = _upsert_job(session, source, item)
             created += int(was_created)
             updated += int(was_updated)
@@ -46,11 +47,12 @@ def collect_source(session: Session, source_id: uuid.UUID) -> SourceRun:
         assert run is not None and source is not None
         run.status = "success"
         run.completed_at = utcnow()
-        run.jobs_found = len(collected)
+        run.jobs_found = len(result.jobs)
         run.jobs_created = created
         run.jobs_updated = updated
+        run.jobs_rejected = result.rejected_count
         source.last_success_at = utcnow()
-        source.last_job_count = len(collected)
+        source.last_job_count = len(result.jobs)
         source.last_error = None
         session.commit()
         return run
@@ -72,6 +74,7 @@ def _upsert_job(session: Session, source: Source, item: CollectedJob) -> tuple[b
     if not item.application_url:
         raise ValueError(f"Collected job has no application URL: {item.title}")
 
+    raw_payload = item.raw_payload if get_settings().collector_retain_raw_payload else {}
     company_name = item.company_name.strip() or source.name
     normalized_company = normalize_name(company_name)
     company = session.scalar(
@@ -143,7 +146,7 @@ def _upsert_job(session: Session, source: Source, item: CollectedJob) -> tuple[b
             published_at=item.published_at,
             fingerprint=fingerprint,
             content_hash=content_hash,
-            raw_payload=item.raw_payload,
+            raw_payload=raw_payload,
         )
         session.add(job)
         session.flush()
@@ -171,7 +174,7 @@ def _upsert_job(session: Session, source: Source, item: CollectedJob) -> tuple[b
             job.external_job_id = item.external_job_id
             job.published_at = item.published_at
             job.content_hash = content_hash
-            job.raw_payload = item.raw_payload
+            job.raw_payload = raw_payload
             updated = True
 
     link = session.scalar(
