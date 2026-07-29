@@ -26,6 +26,7 @@ services:
     volumes:
       - ./backend:/app
       - ./data:/data
+      - ./docs:/docs
     ports:
       - "${JOSE_API_PORT:-8000}:8000"
     depends_on:

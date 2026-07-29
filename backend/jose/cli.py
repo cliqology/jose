@@ -5,11 +5,14 @@ import typer
 
 from jose.db.session import SessionLocal
 from jose.services.collection import collect_source
+from jose.services.platform_detection import detect_platforms_for_vc_sources, render_source_catalog
 from jose.services.source_import import classify_workbook, commit_import, summarize
 from jose.services.tasks import enqueue_collect_all, worker_loop
 from jose.services.users import get_or_create_default_user
 
 app = typer.Typer(help="JOSE command-line interface")
+
+_DEFAULT_CATALOG_PATH = typer.Argument("/docs/source-catalog.md")
 
 
 @app.command("seed")
@@ -48,6 +51,25 @@ def import_sources(
                 f"Imported sources: {run.created_count} created, {run.updated_count} updated, "
                 f"{run.skipped_count} skipped, {run.flagged_count} flagged"
             )
+
+
+@app.command("detect-vc-platforms")
+def detect_vc_platforms(catalog_path: Path = _DEFAULT_CATALOG_PATH) -> None:
+    """Probe VC portfolio sources and record their platform/adapter status."""
+    with SessionLocal() as session:
+        user = get_or_create_default_user(session)
+        results = detect_platforms_for_vc_sources(session, user)
+        catalog_text = render_source_catalog(session, user)
+    catalog_path.write_text(catalog_text)
+    for result in results:
+        if result.status == "error":
+            typer.echo(f"  ERROR      {result.source_name}: {result.error}")
+        else:
+            typer.echo(
+                f"  {result.status.upper():<10} {result.source_name}: "
+                f"adapter={result.adapter} platform={result.detected_platform}"
+            )
+    typer.echo(f"Wrote {catalog_path}")
 
 
 @app.command("collect-source")

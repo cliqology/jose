@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: doctor setup dev down logs test lint build migrate import-sources collect collect-all seed shell-api shell-db reset-db
+.PHONY: doctor setup dev down logs test lint build migrate import-sources detect-vc-platforms collect collect-all seed shell-api shell-db reset-db
 
 doctor:
 	./scripts/doctor.sh
@@ -37,6 +37,9 @@ seed:
 
 import-sources:
 	docker compose run --rm api python -m jose.cli import-sources /data/import/VC_Job_Search_Resources.xlsx
+
+detect-vc-platforms:
+	docker compose run --rm api python -m jose.cli detect-vc-platforms /docs/source-catalog.md
 
 collect-all:
 	docker compose run --rm api python -m jose.cli enqueue-collect-all
