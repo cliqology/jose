@@ -1,6 +1,6 @@
 from urllib.parse import urlsplit
 
-from jose.collectors.base import CollectedJob, CollectorError
+from jose.collectors.base import CollectedJob, CollectionResult, CollectorError
 from jose.collectors.http import create_http_client, safe_get
 from jose.collectors.utils import html_to_text, parse_datetime
 
@@ -8,7 +8,7 @@ from jose.collectors.utils import html_to_text, parse_datetime
 class LeverCollector:
     name = "lever"
 
-    def collect(self, source_name: str, source_url: str) -> list[CollectedJob]:
+    def collect(self, source_name: str, source_url: str) -> CollectionResult:
         parts = [part for part in urlsplit(source_url).path.split("/") if part]
         if not parts:
             raise CollectorError("Unable to determine Lever site name")
@@ -40,4 +40,4 @@ class LeverCollector:
                     raw_payload=item,
                 )
             )
-        return jobs
+        return CollectionResult(jobs=jobs)

@@ -33,10 +33,10 @@ def collect_source(session: Session, source_id: uuid.UUID) -> SourceRun:
 
     try:
         collector = get_collector(source.url, source.adapter)
-        collected = collector.collect(source.name, source.url)
+        result = collector.collect(source.name, source.url)
         created = 0
         updated = 0
-        for item in collected:
+        for item in result.jobs:
             was_created, was_updated = _upsert_job(session, source, item)
             created += int(was_created)
             updated += int(was_updated)
@@ -46,11 +46,11 @@ def collect_source(session: Session, source_id: uuid.UUID) -> SourceRun:
         assert run is not None and source is not None
         run.status = "success"
         run.completed_at = utcnow()
-        run.jobs_found = len(collected)
+        run.jobs_found = len(result.jobs)
         run.jobs_created = created
         run.jobs_updated = updated
         source.last_success_at = utcnow()
-        source.last_job_count = len(collected)
+        source.last_job_count = len(result.jobs)
         source.last_error = None
         session.commit()
         return run

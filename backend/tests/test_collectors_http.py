@@ -74,11 +74,12 @@ def test_ashby_collector(monkeypatch: pytest.MonkeyPatch) -> None:
         "jose.collectors.ashby",
         FakeResponse(payload=json_fixture("ashby.json")),
     )
-    jobs = AshbyCollector().collect("Example", "https://jobs.ashbyhq.com/example")
-    assert len(jobs) == 1
-    assert jobs[0].title == "Chief Operating Officer"
-    assert jobs[0].compensation_min == 225000
-    assert jobs[0].published_at is not None
+    result = AshbyCollector().collect("Example", "https://jobs.ashbyhq.com/example")
+    assert len(result.jobs) == 1
+    assert result.jobs[0].title == "Chief Operating Officer"
+    assert result.jobs[0].compensation_min == 225000
+    assert result.jobs[0].published_at is not None
+    assert result.rejected_count == 0
 
 
 def test_greenhouse_collector(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -87,11 +88,12 @@ def test_greenhouse_collector(monkeypatch: pytest.MonkeyPatch) -> None:
         "jose.collectors.greenhouse",
         FakeResponse(payload=json_fixture("greenhouse.json")),
     )
-    jobs = GreenhouseCollector().collect("Example", "https://boards.greenhouse.io/example")
-    assert len(jobs) == 1
-    assert jobs[0].title == "General Manager"
-    assert jobs[0].description_text == "Own the business unit."
-    assert jobs[0].external_job_id == "42"
+    result = GreenhouseCollector().collect("Example", "https://boards.greenhouse.io/example")
+    assert len(result.jobs) == 1
+    assert result.jobs[0].title == "General Manager"
+    assert result.jobs[0].description_text == "Own the business unit."
+    assert result.jobs[0].external_job_id == "42"
+    assert result.rejected_count == 0
 
 
 def test_lever_collector_accepts_epoch_milliseconds(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -100,11 +102,12 @@ def test_lever_collector_accepts_epoch_milliseconds(monkeypatch: pytest.MonkeyPa
         "jose.collectors.lever",
         FakeResponse(payload=json_fixture("lever.json")),
     )
-    jobs = LeverCollector().collect("Example", "https://jobs.lever.co/example")
-    assert len(jobs) == 1
-    assert jobs[0].title == "President"
-    assert jobs[0].published_at is not None
-    assert jobs[0].published_at.tzinfo is not None
+    result = LeverCollector().collect("Example", "https://jobs.lever.co/example")
+    assert len(result.jobs) == 1
+    assert result.jobs[0].title == "President"
+    assert result.jobs[0].published_at is not None
+    assert result.jobs[0].published_at.tzinfo is not None
+    assert result.rejected_count == 0
 
 
 def test_jsonld_collector(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -113,8 +116,9 @@ def test_jsonld_collector(monkeypatch: pytest.MonkeyPatch) -> None:
         "jose.collectors.jsonld",
         FakeResponse(text=(FIXTURES / "jobposting.html").read_text()),
     )
-    jobs = JsonLdCollector().collect("Fallback Name", "https://example.com/careers")
-    assert len(jobs) == 1
-    assert jobs[0].company_name == "Example Labs"
-    assert jobs[0].location == "New York, NY, US"
-    assert jobs[0].employment_type == "FULL_TIME"
+    result = JsonLdCollector().collect("Fallback Name", "https://example.com/careers")
+    assert len(result.jobs) == 1
+    assert result.jobs[0].company_name == "Example Labs"
+    assert result.jobs[0].location == "New York, NY, US"
+    assert result.jobs[0].employment_type == "FULL_TIME"
+    assert result.rejected_count == 0

@@ -1,6 +1,6 @@
 from urllib.parse import parse_qs, urlsplit
 
-from jose.collectors.base import CollectedJob, CollectorError
+from jose.collectors.base import CollectedJob, CollectionResult, CollectorError
 from jose.collectors.http import create_http_client, safe_get
 from jose.collectors.utils import html_to_text, parse_datetime
 
@@ -19,7 +19,7 @@ class GreenhouseCollector:
             return query["for"][0]
         raise CollectorError("Unable to determine Greenhouse board token")
 
-    def collect(self, source_name: str, source_url: str) -> list[CollectedJob]:
+    def collect(self, source_name: str, source_url: str) -> CollectionResult:
         token = self._board_token(source_url)
         endpoint = f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs"
         with create_http_client() as client:
@@ -45,4 +45,4 @@ class GreenhouseCollector:
                     raw_payload=item,
                 )
             )
-        return jobs
+        return CollectionResult(jobs=jobs)

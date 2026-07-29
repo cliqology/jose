@@ -26,6 +26,13 @@ class CollectedJob(BaseModel):
     raw_payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class CollectionResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    jobs: list[CollectedJob]
+    rejected_count: int = 0
+
+
 class CollectorError(RuntimeError):
     pass
 
@@ -49,4 +56,4 @@ class UnsafeURLError(CollectorError):
 class Collector(Protocol):
     name: str
 
-    def collect(self, source_name: str, source_url: str) -> list[CollectedJob]: ...
+    def collect(self, source_name: str, source_url: str) -> CollectionResult: ...

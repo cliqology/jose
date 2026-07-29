@@ -1,6 +1,6 @@
 from urllib.parse import urlsplit
 
-from jose.collectors.base import CollectedJob, CollectorError
+from jose.collectors.base import CollectedJob, CollectionResult, CollectorError
 from jose.collectors.http import create_http_client, safe_get
 from jose.collectors.utils import html_to_text, parse_datetime
 
@@ -8,7 +8,7 @@ from jose.collectors.utils import html_to_text, parse_datetime
 class AshbyCollector:
     name = "ashby"
 
-    def collect(self, source_name: str, source_url: str) -> list[CollectedJob]:
+    def collect(self, source_name: str, source_url: str) -> CollectionResult:
         board_name = urlsplit(source_url).path.strip("/").split("/")[0]
         if not board_name:
             raise CollectorError("Unable to determine Ashby job-board name")
@@ -50,4 +50,4 @@ class AshbyCollector:
                     raw_payload=item,
                 )
             )
-        return jobs
+        return CollectionResult(jobs=jobs)
