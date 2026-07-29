@@ -41,7 +41,9 @@ Migration adds four nullable columns to `sources`:
 - Set to the literal `"unsupported"` for every other outcome — both a recognized-but-uncollectible platform and a genuinely uncertain result — so it is never left on `"auto"` (which is what causes today's silent JSON-LD fallback) and so `get_collector()` fails loudly (`UnsupportedSourceError`) rather than being reachable at all.
 - `detection_status` is what distinguishes the two `"unsupported"` cases for human review: `"unsupported"` (we found a specific platform, e.g. `detected_platform="getro"`, but have no adapter for it) vs. `"uncertain"` (we found nothing recognizable at all).
 
-Probe failures (network error, non-2xx, timeout, blocked) reuse the existing `last_error` column instead of adding a new one, and set `detection_status="error"`. `adapter` is left untouched on error — a failed probe must never be recorded as a confident `"unsupported"` finding, per CLAUDE.md rule #5 applied by analogy ("a failed collector is a failure, never a successful zero-result run").
+Probe failures (network error, non-2xx, timeout, blocked) reuse the existing `last_error` column instead of adding a new one, and set `detection_status="error"`. The `adapter` *column* is left unwritten on error (it keeps whatever value it already had — `"auto"` on a first probe, or a prior confident result if this is a re-probe of a previously-classified source) — a failed probe must never overwrite a good prior result, and must never be recorded as a confident `"unsupported"` finding, per CLAUDE.md rule #5 applied by analogy ("a failed collector is a failure, never a successful zero-result run"). The `ProbeResult.adapter` *return value* is `None` in this case, since the call produced no determination to report.
+
+Because errors leave `adapter="auto"` on a first probe, a single automated run is not guaranteed to close out all 17 sources — see "Closing out the issue" below.
 
 ## Detection logic
 
@@ -124,9 +126,17 @@ All fixture-based (no live network calls), following the `FakeResponse`/`FakeCli
 
 No changes to `backend/tests/test_collectors.py::test_detect_adapter` — confirmed out of scope.
 
+## Note: redirect capture is board-level only
+
+Acceptance criterion 3 ("redirected ATS links are captured as canonical application URLs") is satisfied here only for the case where a VC source's *own* board URL redirects directly to an ATS host (e.g. the configured URL is a wrapper/shortlink). In the more common real-world case — an aggregator page that lists many portfolio companies' jobs, where each individual job link redirects to its own company's Greenhouse/Lever/Ashby page — this design does not follow those per-job links, per the board-level-only scope decision made during design. If, once this is run against the live 17 sources, most/all of them turn out to be aggregator pages with no board-level redirect, this criterion will end up trivially unexercised rather than meaningfully satisfied, and per-job redirect capture would need to be picked up as part of Issue 06 (which already owns building the real aggregator adapter and would naturally need to resolve individual job links anyway).
+
+## Closing out the issue
+
+Acceptance criterion 1 requires every VC source to end up with a configured adapter or an explicit `"unsupported"` status — but a source left in `detection_status="error"` after a run still has `adapter="auto"` (first probe) or a stale prior value (re-probe), not a real determination. `detect-vc-platforms` is idempotent and safe to re-run (CLAUDE.md rule #9), so closing out this issue means: run it, re-run it for any `"error"` sources (transient failures), and manually research/resolve any that stay `"uncertain"` after that — updating `adapter` by hand via the existing source CRUD (Issue 01) and the `docs/source-catalog.md` Notes section. The issue isn't done until zero VC sources remain on `"auto"`/`"error"`.
+
 ## Out of scope
 
 - Building a real collector/adapter for any detected non-ATS aggregator platform — Issue 06.
 - Changing `detect_adapter`'s runtime fallback for non-VC sources.
-- Crawling into individual job-listing links found on a VC's board page (board-level detection only, per design discussion — a source's own redirect chain is captured, but the tool does not parse the board's HTML for a representative job link to follow further).
+- Crawling into individual job-listing links found on a VC's board page (see "redirect capture is board-level only" above).
 - Expanding the aggregator signature table beyond a minimal starting set as part of this design — real signatures are expected to be added once the tool is run against the live 17 sources.
