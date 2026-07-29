@@ -47,6 +47,10 @@ class Source(UUIDPrimaryKeyMixin, TimestampMixin, UserOwnedMixin, Base):
     last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_job_count: Mapped[int | None] = mapped_column(Integer)
     last_error: Mapped[str | None] = mapped_column(Text)
+    detected_platform: Mapped[str | None] = mapped_column(String(100))
+    detection_status: Mapped[str | None] = mapped_column(String(20))
+    detected_application_url: Mapped[str | None] = mapped_column(Text)
+    detected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     runs: Mapped[list["SourceRun"]] = relationship(
         back_populates="source", cascade="all, delete-orphan"

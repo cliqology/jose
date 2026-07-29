@@ -4,7 +4,8 @@ import pytest
 from sqlalchemy import select
 
 from jose.models import Company, Job, JobSource
-from jose.schemas import SourceCreate, SourceUpdate
+from jose.models.base import utcnow
+from jose.schemas import SourceAdapter, SourceCategory, SourceCreate, SourceRead, SourceUpdate
 from jose.services.sources import (
     DeleteConfirmationRequiredError,
     DuplicateSourceUrlError,
@@ -170,6 +171,43 @@ def test_delete_source_raises_for_other_users_source(db_session, user, other_use
 
     with pytest.raises(SourceNotFoundError):
         delete_source(db_session, user, created.id, confirm=True)
+
+
+def test_update_source_can_mark_adapter_unsupported(db_session, user):
+    source = create_source(
+        db_session, user, SourceCreate(name="Acme", url="https://acme3.example.com/jobs")
+    )
+
+    updated = update_source(
+        db_session, user, source.id, SourceUpdate(adapter=SourceAdapter.UNSUPPORTED)
+    )
+
+    assert updated.adapter == "unsupported"
+
+
+def test_source_read_exposes_detection_fields(db_session, user):
+    source = create_source(
+        db_session,
+        user,
+        SourceCreate(
+            name="Example VC",
+            url="https://jobs.examplevc.com/",
+            category=SourceCategory.VC_PORTFOLIO,
+        ),
+    )
+    source.detected_platform = "getro"
+    source.detection_status = "unsupported"
+    source.detected_application_url = "https://jobs.examplevc.com/board"
+    source.detected_at = utcnow()
+    db_session.commit()
+    db_session.refresh(source)
+
+    read = SourceRead.model_validate(source)
+
+    assert read.detected_platform == "getro"
+    assert read.detection_status == "unsupported"
+    assert read.detected_application_url == "https://jobs.examplevc.com/board"
+    assert read.detected_at is not None
 
 
 def _link_job_to_source(session, user, source) -> Job:

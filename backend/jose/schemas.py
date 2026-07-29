@@ -20,6 +20,7 @@ class SourceAdapter(StrEnum):
     GREENHOUSE = "greenhouse"
     LEVER = "lever"
     JSONLD = "jsonld"
+    UNSUPPORTED = "unsupported"
 
 
 class CollectionFrequency(StrEnum):
@@ -71,6 +72,10 @@ class SourceRead(BaseModel):
     last_success_at: datetime | None
     last_job_count: int | None
     last_error: str | None
+    detected_platform: str | None
+    detection_status: str | None
+    detected_application_url: str | None
+    detected_at: datetime | None
 
 
 class JobRead(BaseModel):
