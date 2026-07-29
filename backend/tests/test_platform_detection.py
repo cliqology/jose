@@ -95,8 +95,10 @@ def test_probe_source_detects_json_ld_job_posting_with_list_type(
     assert outcome.detected_platform == "jsonld"
 
 
-def test_probe_source_matches_aggregator_signature(monkeypatch: pytest.MonkeyPatch) -> None:
-    needle, platform = next(iter(AGGREGATOR_SIGNATURES.items()))
+@pytest.mark.parametrize(("needle", "platform"), list(AGGREGATOR_SIGNATURES.items()))
+def test_probe_source_matches_aggregator_signature(
+    monkeypatch: pytest.MonkeyPatch, needle: str, platform: str
+) -> None:
     patch_client(monkeypatch, FakeResponse(final_url=f"https://jobs.examplevc.{needle}"))
 
     outcome = probe_source("https://jobs.examplevc.com/")

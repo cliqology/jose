@@ -16,6 +16,7 @@ from jose.models.base import utcnow
 
 AGGREGATOR_SIGNATURES: dict[str, str] = {
     "getro.com": "getro",
+    "consider.com": "consider",
 }
 
 DetectionStatus = Literal["supported", "unsupported", "uncertain", "error"]

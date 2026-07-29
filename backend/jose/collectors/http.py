@@ -65,7 +65,10 @@ def create_http_client() -> httpx.Client:
         timeout=settings.collector_timeout_seconds,
         follow_redirects=True,
         max_redirects=settings.collector_max_redirects,
-        headers={"User-Agent": settings.collector_user_agent},
+        headers={
+            "User-Agent": settings.collector_user_agent,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
         transport=SafeHTTPTransport(),
     )
 
