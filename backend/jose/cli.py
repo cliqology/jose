@@ -57,7 +57,7 @@ def collect_source_command(source_id: uuid.UUID) -> None:
         run = collect_source(session, source_id)
     typer.echo(
         f"Run {run.id}: {run.status}; found={run.jobs_found}; "
-        f"created={run.jobs_created}; updated={run.jobs_updated}"
+        f"created={run.jobs_created}; updated={run.jobs_updated}; rejected={run.jobs_rejected}"
     )
 
 
