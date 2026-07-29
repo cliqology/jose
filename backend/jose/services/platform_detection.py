@@ -1,13 +1,18 @@
 import json
+import uuid
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from jose.collectors.base import CollectorError
 from jose.collectors.http import create_http_client, safe_get
 from jose.collectors.registry import match_known_ats_host
+from jose.models import Source, User
+from jose.models.base import utcnow
 
 AGGREGATOR_SIGNATURES: dict[str, str] = {
     "getro.com": "getro",
@@ -115,3 +120,51 @@ def probe_source(url: str) -> ProbeOutcome:
         detected_application_url=final_url,
         error=None,
     )
+
+
+class ProbeResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    source_id: uuid.UUID
+    source_name: str
+    status: DetectionStatus
+    adapter: str | None
+    detected_platform: str | None
+    detected_application_url: str | None
+    error: str | None
+
+
+def detect_platforms_for_vc_sources(session: Session, user: User) -> list[ProbeResult]:
+    sources = list(
+        session.scalars(
+            select(Source).where(
+                Source.user_id == user.id, Source.category == "vc_portfolio"
+            )
+        ).all()
+    )
+
+    results: list[ProbeResult] = []
+    for source in sources:
+        outcome = probe_source(source.url)
+        if outcome.status != "error":
+            source.adapter = outcome.adapter
+        else:
+            source.last_error = outcome.error
+        source.detected_platform = outcome.detected_platform
+        source.detection_status = outcome.status
+        source.detected_application_url = outcome.detected_application_url
+        source.detected_at = utcnow()
+        results.append(
+            ProbeResult(
+                source_id=source.id,
+                source_name=source.name,
+                status=outcome.status,
+                adapter=outcome.adapter,
+                detected_platform=outcome.detected_platform,
+                detected_application_url=outcome.detected_application_url,
+                error=outcome.error,
+            )
+        )
+
+    session.commit()
+    return results

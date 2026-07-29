@@ -4,7 +4,14 @@ from contextlib import contextmanager
 import httpx
 import pytest
 
-from jose.services.platform_detection import AGGREGATOR_SIGNATURES, probe_source
+from jose.schemas import SourceCategory, SourceCreate
+from jose.services.platform_detection import (
+    AGGREGATOR_SIGNATURES,
+    ProbeOutcome,
+    detect_platforms_for_vc_sources,
+    probe_source,
+)
+from jose.services.sources import create_source
 
 
 class FakeResponse:
@@ -106,3 +113,113 @@ def test_probe_source_records_error_on_failed_fetch(monkeypatch: pytest.MonkeyPa
     assert outcome.adapter is None
     assert outcome.detected_platform is None
     assert outcome.error is not None
+
+
+def test_detect_platforms_only_probes_vc_sources(db_session, user, monkeypatch):
+    vc_one = create_source(
+        db_session,
+        user,
+        SourceCreate(
+            name="VC One", url="https://jobs.vcone.com/", category=SourceCategory.VC_PORTFOLIO
+        ),
+    )
+    vc_two = create_source(
+        db_session,
+        user,
+        SourceCreate(
+            name="VC Two", url="https://jobs.vctwo.com/", category=SourceCategory.VC_PORTFOLIO
+        ),
+    )
+    non_vc = create_source(
+        db_session, user, SourceCreate(name="Direct ATS", url="https://boards.greenhouse.io/x")
+    )
+
+    def fake_probe(url: str) -> ProbeOutcome:
+        return ProbeOutcome(
+            status="uncertain",
+            adapter="unsupported",
+            detected_platform=None,
+            detected_application_url=url,
+            error=None,
+        )
+
+    monkeypatch.setattr("jose.services.platform_detection.probe_source", fake_probe)
+
+    results = detect_platforms_for_vc_sources(db_session, user)
+
+    probed_ids = {result.source_id for result in results}
+    assert probed_ids == {vc_one.id, vc_two.id}
+
+    db_session.refresh(non_vc)
+    assert non_vc.adapter == "auto"
+    assert non_vc.detection_status is None
+
+    db_session.refresh(vc_one)
+    assert vc_one.adapter == "unsupported"
+    assert vc_one.detection_status == "uncertain"
+    assert vc_one.detected_at is not None
+
+
+def test_detect_platforms_is_scoped_to_user(db_session, user, other_user, monkeypatch):
+    mine = create_source(
+        db_session,
+        user,
+        SourceCreate(
+            name="Mine", url="https://jobs.mine.com/", category=SourceCategory.VC_PORTFOLIO
+        ),
+    )
+    theirs = create_source(
+        db_session,
+        other_user,
+        SourceCreate(
+            name="Theirs", url="https://jobs.theirs.com/", category=SourceCategory.VC_PORTFOLIO
+        ),
+    )
+
+    def fake_probe(url: str) -> ProbeOutcome:
+        return ProbeOutcome(
+            status="uncertain",
+            adapter="unsupported",
+            detected_platform=None,
+            detected_application_url=url,
+            error=None,
+        )
+
+    monkeypatch.setattr("jose.services.platform_detection.probe_source", fake_probe)
+
+    results = detect_platforms_for_vc_sources(db_session, user)
+
+    assert {result.source_id for result in results} == {mine.id}
+    db_session.refresh(theirs)
+    assert theirs.detection_status is None
+
+
+def test_detect_platforms_records_error_without_overwriting_adapter(
+    db_session, user, monkeypatch
+):
+    source = create_source(
+        db_session,
+        user,
+        SourceCreate(
+            name="Flaky", url="https://jobs.flaky.com/", category=SourceCategory.VC_PORTFOLIO
+        ),
+    )
+
+    def fake_probe(url: str) -> ProbeOutcome:
+        return ProbeOutcome(
+            status="error",
+            adapter=None,
+            detected_platform=None,
+            detected_application_url=None,
+            error="Rate limited by https://jobs.flaky.com/",
+        )
+
+    monkeypatch.setattr("jose.services.platform_detection.probe_source", fake_probe)
+
+    results = detect_platforms_for_vc_sources(db_session, user)
+
+    assert results[0].status == "error"
+    db_session.refresh(source)
+    assert source.adapter == "auto"
+    assert source.detection_status == "error"
+    assert source.last_error == "Rate limited by https://jobs.flaky.com/"
