@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from jose.collectors.ashby import AshbyCollector
+from jose.collectors.base import CollectorError
 from jose.collectors.greenhouse import GreenhouseCollector
 from jose.collectors.jsonld import JsonLdCollector
 from jose.collectors.lever import LeverCollector
@@ -122,3 +123,37 @@ def test_jsonld_collector(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.jobs[0].location == "New York, NY, US"
     assert result.jobs[0].employment_type == "FULL_TIME"
     assert result.rejected_count == 0
+
+
+def test_ashby_collector_returns_empty_for_no_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
+    patch_client(
+        monkeypatch,
+        "jose.collectors.ashby",
+        FakeResponse(payload={"jobs": []}),
+    )
+    result = AshbyCollector().collect("Example", "https://jobs.ashbyhq.com/example")
+    assert result.jobs == []
+    assert result.rejected_count == 0
+
+
+def test_ashby_collector_raises_on_malformed_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    patch_client(
+        monkeypatch,
+        "jose.collectors.ashby",
+        FakeResponse(payload={"unexpected": "shape"}),
+    )
+    with pytest.raises(CollectorError):
+        AshbyCollector().collect("Example", "https://jobs.ashbyhq.com/example")
+
+
+def test_ashby_collector_rejects_job_missing_application_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = json_fixture("ashby.json")
+    payload["jobs"].append({"id": "ashby-2", "title": "No URL Role"})
+    patch_client(monkeypatch, "jose.collectors.ashby", FakeResponse(payload=payload))
+
+    result = AshbyCollector().collect("Example", "https://jobs.ashbyhq.com/example")
+
+    assert len(result.jobs) == 1
+    assert result.rejected_count == 1
