@@ -1,4 +1,4 @@
-from jose.collectors.registry import detect_adapter
+from jose.collectors.registry import detect_adapter, match_known_ats_host
 from jose.collectors.utils import canonicalize_url, job_fingerprint, normalize_title
 
 
@@ -7,6 +7,14 @@ def test_detect_adapter() -> None:
     assert detect_adapter("https://boards.greenhouse.io/example") == "greenhouse"
     assert detect_adapter("https://jobs.lever.co/example") == "lever"
     assert detect_adapter("https://example.com/careers") == "jsonld"
+
+
+def test_match_known_ats_host() -> None:
+    assert match_known_ats_host("boards.greenhouse.io") == "greenhouse"
+    assert match_known_ats_host("job-boards.greenhouse.io") == "greenhouse"
+    assert match_known_ats_host("JOBS.LEVER.CO") == "lever"
+    assert match_known_ats_host("jobs.ashbyhq.com") == "ashby"
+    assert match_known_ats_host("example.com") is None
 
 
 def test_url_canonicalization_removes_tracking() -> None:

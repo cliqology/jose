@@ -13,18 +13,23 @@ COLLECTORS: dict[str, Collector] = {
     "jsonld": JsonLdCollector(),
 }
 
+_ATS_HOSTS: dict[str, str] = {
+    "jobs.ashbyhq.com": "ashby",
+    "boards.greenhouse.io": "greenhouse",
+    "job-boards.greenhouse.io": "greenhouse",
+    "jobs.lever.co": "lever",
+}
+
+
+def match_known_ats_host(host: str) -> str | None:
+    return _ATS_HOSTS.get(host.lower())
+
 
 def detect_adapter(source_url: str, requested: str = "auto") -> str:
     if requested != "auto":
         return requested
     host = urlsplit(source_url).netloc.lower()
-    if host == "jobs.ashbyhq.com":
-        return "ashby"
-    if host in {"boards.greenhouse.io", "job-boards.greenhouse.io"}:
-        return "greenhouse"
-    if host == "jobs.lever.co":
-        return "lever"
-    return "jsonld"
+    return match_known_ats_host(host) or "jsonld"
 
 
 def get_collector(source_url: str, requested: str = "auto") -> Collector:
