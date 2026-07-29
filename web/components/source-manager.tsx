@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { Source } from "@/lib/api";
 import { apiFetch, apiFetchJson } from "@/lib/browser-api";
 import { CollectButton } from "@/components/collect-button";
@@ -158,6 +158,56 @@ function formatDate(value: string | null): string {
   return value ? new Date(value).toLocaleString() : "Never";
 }
 
+type SourceStatus = "failed" | "enabled" | "disabled";
+
+function getStatus(source: Source): SourceStatus {
+  if (source.last_error) return "failed";
+  return source.enabled ? "enabled" : "disabled";
+}
+
+const STATUS_LABELS: Record<SourceStatus, string> = {
+  failed: "Failed",
+  enabled: "Enabled",
+  disabled: "Disabled",
+};
+
+type SortKey = "name" | "category" | "adapter" | "last_success_at" | "last_job_count" | "status";
+
+const SORTABLE_COLUMNS: { key: SortKey; label: string }[] = [
+  { key: "name", label: "Source" },
+  { key: "category", label: "Category" },
+  { key: "adapter", label: "Adapter" },
+  { key: "last_success_at", label: "Last success" },
+  { key: "last_job_count", label: "Jobs" },
+  { key: "status", label: "Status" },
+];
+
+function getSortValue(source: Source, key: SortKey): string | number | null {
+  switch (key) {
+    case "name":
+      return source.name.toLowerCase();
+    case "category":
+      return source.category;
+    case "adapter":
+      return source.adapter;
+    case "last_success_at":
+      return source.last_success_at ? new Date(source.last_success_at).getTime() : null;
+    case "last_job_count":
+      return source.last_job_count;
+    case "status":
+      return getStatus(source);
+  }
+}
+
+function compareSortValues(a: string | number | null, b: string | number | null): number {
+  // Nulls (never collected, unknown job count) always sort last, regardless of direction.
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  return String(a).localeCompare(String(b));
+}
+
 export function SourceManager({ initialSources }: { initialSources: Source[] }) {
   const [sources, setSources] = useState(initialSources);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -166,6 +216,51 @@ export function SourceManager({ initialSources }: { initialSources: Source[] }) 
   const [showAddForm, setShowAddForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [adapterFilter, setAdapterFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  function handleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((current) => (current === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  }
+
+  function resetFilters() {
+    setSearchQuery("");
+    setCategoryFilter("all");
+    setAdapterFilter("all");
+    setStatusFilter("all");
+  }
+
+  const hasActiveFilters =
+    searchQuery !== "" || categoryFilter !== "all" || adapterFilter !== "all" || statusFilter !== "all";
+
+  const visibleSources = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    const filtered = sources.filter((source) => {
+      if (categoryFilter !== "all" && source.category !== categoryFilter) return false;
+      if (adapterFilter !== "all" && source.adapter !== adapterFilter) return false;
+      if (statusFilter !== "all" && getStatus(source) !== statusFilter) return false;
+      if (query && !source.name.toLowerCase().includes(query) && !source.url.toLowerCase().includes(query)) {
+        return false;
+      }
+      return true;
+    });
+
+    if (!sortKey) return filtered;
+    const direction = sortDir === "asc" ? 1 : -1;
+    return [...filtered].sort(
+      (a, b) => direction * compareSortValues(getSortValue(a, sortKey), getSortValue(b, sortKey)),
+    );
+  }, [sources, searchQuery, categoryFilter, adapterFilter, statusFilter, sortKey, sortDir]);
 
   function beginEdit(source: Source) {
     setError(null);
@@ -265,21 +360,76 @@ export function SourceManager({ initialSources }: { initialSources: Source[] }) 
         </form>
       ) : null}
 
+      <div className="tableFilters">
+        <input
+          type="search"
+          placeholder="Search name or URL"
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+        />
+        <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+          <option value="all">All categories</option>
+          {CATEGORIES.map((category) => (
+            <option key={category} value={category}>
+              {category.replaceAll("_", " ")}
+            </option>
+          ))}
+        </select>
+        <select value={adapterFilter} onChange={(event) => setAdapterFilter(event.target.value)}>
+          <option value="all">All adapters</option>
+          {ADAPTERS.map((adapter) => (
+            <option key={adapter} value={adapter}>
+              {adapter}
+            </option>
+          ))}
+        </select>
+        <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+          <option value="all">All statuses</option>
+          {(Object.keys(STATUS_LABELS) as SourceStatus[]).map((status) => (
+            <option key={status} value={status}>
+              {STATUS_LABELS[status]}
+            </option>
+          ))}
+        </select>
+        {hasActiveFilters ? (
+          <button type="button" className="ghostButton" onClick={resetFilters}>
+            Reset filters
+          </button>
+        ) : null}
+        <span className="filterCount">
+          {visibleSources.length} of {sources.length} sources
+        </span>
+      </div>
+
       <div className="tableWrap">
         <table>
           <thead>
             <tr>
-              <th>Source</th>
-              <th>Category</th>
-              <th>Adapter</th>
-              <th>Last success</th>
-              <th>Jobs</th>
-              <th>Status</th>
+              {SORTABLE_COLUMNS.map(({ key, label }) => (
+                <th
+                  key={key}
+                  aria-sort={sortKey === key ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+                >
+                  <button type="button" className="sortHeader" onClick={() => handleSort(key)}>
+                    {label}
+                    <span className="sortIndicator">
+                      {sortKey === key ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                    </span>
+                  </button>
+                </th>
+              ))}
               <th aria-label="Actions" />
             </tr>
           </thead>
           <tbody>
-            {sources.map((source) =>
+            {visibleSources.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="emptyState">
+                  No sources match the current filters.
+                </td>
+              </tr>
+            ) : null}
+            {visibleSources.map((source) =>
               editingId === source.id ? (
                 <tr key={source.id}>
                   <td colSpan={7}>
