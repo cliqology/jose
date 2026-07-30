@@ -3,7 +3,7 @@ import time
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import case, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -138,10 +138,45 @@ def run_task(session: Session, task: Task) -> None:
             session.commit()
 
 
+def reap_stale_tasks(session: Session, threshold: timedelta) -> list[Task]:
+    cutoff = utcnow() - threshold
+    stmt = (
+        update(Task)
+        .where(Task.status == "running", Task.started_at < cutoff)
+        .values(
+            status=case((Task.attempts < Task.max_attempts, "queued"), else_="failed"),
+            scheduled_at=utcnow(),
+        )
+        .returning(Task)
+    )
+    reaped = list(session.execute(stmt).scalars().all())
+    for task in reaped:
+        session.add(
+            SystemEvent(
+                user_id=task.user_id,
+                event_type="task_reaped_stale",
+                entity_type="task",
+                entity_id=task.id,
+                message=(
+                    f"Reaped stale running task {task.id} ({task.task_type}), "
+                    f"last held by worker {task.worker_id}"
+                ),
+                data={
+                    "worker_id": task.worker_id,
+                    "attempts": task.attempts,
+                    "status": task.status,
+                },
+            )
+        )
+    session.commit()
+    return reaped
+
+
 def worker_loop(once: bool = False) -> None:
     settings = get_settings()
     while True:
         with SessionLocal() as session:
+            reap_stale_tasks(session, timedelta(minutes=settings.task_stale_running_minutes))
             task = claim_next_task(session, settings.worker_id)
             if task:
                 run_task(session, task)

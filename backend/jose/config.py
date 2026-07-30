@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     task_retry_base_seconds: float = 60.0
     task_retry_max_seconds: float = 1800.0
     task_retry_jitter_pct: float = 0.2
+    task_stale_running_minutes: float = 30.0
 
     @property
     def cors_origins(self) -> list[str]:
