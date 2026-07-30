@@ -1,12 +1,15 @@
 import os
 import socket
 import threading
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
 from jose.config import get_settings
+from jose.db.session import SessionLocal
 from jose.models import SystemEvent, Task
 from jose.schemas import SourceCreate
 from jose.services import tasks as tasks_module
@@ -237,3 +240,34 @@ def test_enqueue_collect_all_uses_users_timezone_for_idempotency_key(db_session,
         f"{datetime.now(ZoneInfo('Pacific/Kiritimati')).date().isoformat()}"
     )
     assert first_batch[0].idempotency_key == expected_key
+
+
+def test_concurrent_claims_never_return_the_same_task(db_session, user):
+    for i in range(20):
+        enqueue_task(
+            db_session,
+            user,
+            task_type="collect_source",
+            payload={},
+            idempotency_key=f"concurrent-{i}",
+        )
+
+    claimed_ids: list[uuid.UUID] = []
+    lock = threading.Lock()
+
+    def _claim_all(worker_id: str) -> None:
+        with SessionLocal() as session:
+            while True:
+                task = claim_next_task(session, worker_id)
+                if task is None:
+                    return
+                with lock:
+                    claimed_ids.append(task.id)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(_claim_all, f"worker-{i}") for i in range(2)]
+        for future in futures:
+            future.result()
+
+    assert len(claimed_ids) == 20
+    assert len(set(claimed_ids)) == 20
