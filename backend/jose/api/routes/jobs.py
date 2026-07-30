@@ -18,7 +18,7 @@ def list_jobs(
     rows = db.execute(
         select(Job, Company.name)
         .join(Company, Company.id == Job.company_id)
-        .where(Job.user_id == user.id)
+        .where(Job.user_id == user.id, Job.status != "merged")
         .order_by(Job.first_seen_at.desc())
         .limit(limit)
     ).all()

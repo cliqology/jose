@@ -27,13 +27,15 @@ def get_dashboard_summary(session: Session, user: User) -> DashboardSummary:
         )
         or 0,
         jobs_total=session.scalar(
-            select(func.count()).select_from(Job).where(Job.user_id == user.id)
+            select(func.count())
+            .select_from(Job)
+            .where(Job.user_id == user.id, Job.status != "merged")
         )
         or 0,
         jobs_seen_last_24h=session.scalar(
             select(func.count())
             .select_from(Job)
-            .where(Job.user_id == user.id, Job.first_seen_at >= since)
+            .where(Job.user_id == user.id, Job.status != "merged", Job.first_seen_at >= since)
         )
         or 0,
         queued_tasks=session.scalar(
