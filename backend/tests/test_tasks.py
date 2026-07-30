@@ -9,8 +9,8 @@ from sqlalchemy import select
 from jose.config import get_settings
 from jose.models import SystemEvent, Task
 from jose.schemas import SourceCreate
-from jose.services.sources import create_source
 from jose.services import tasks as tasks_module
+from jose.services.sources import create_source
 from jose.services.tasks import (
     backoff_delay,
     claim_next_task,
