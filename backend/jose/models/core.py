@@ -138,6 +138,9 @@ class Job(UUIDPrimaryKeyMixin, TimestampMixin, UserOwnedMixin, Base):
     merged_into_job_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="SET NULL"), index=True
     )
+    reposted_from_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="SET NULL"), index=True
+    )
 
     company: Mapped[Company] = relationship()
 
@@ -157,6 +160,8 @@ class JobSource(UUIDPrimaryKeyMixin, TimestampMixin, UserOwnedMixin, Base):
     source_job_url: Mapped[str | None] = mapped_column(Text)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class JobVersion(UUIDPrimaryKeyMixin, TimestampMixin, UserOwnedMixin, Base):
@@ -172,6 +177,7 @@ class JobVersion(UUIDPrimaryKeyMixin, TimestampMixin, UserOwnedMixin, Base):
     content_hash: Mapped[str] = mapped_column(String(64))
     seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    is_material: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
 class JobMergeCandidate(UUIDPrimaryKeyMixin, TimestampMixin, UserOwnedMixin, Base):
