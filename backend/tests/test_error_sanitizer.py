@@ -12,13 +12,12 @@ def test_redacts_secret_query_string_params():
 
 
 def test_redacts_authorization_header_with_scheme():
-    text = "Request failed with headers Authorization: Bearer sk-live-abcdef123456 and Accept: */*"
+    text = "Request failed with Authorization: Bearer sk-live-abcdef123456"
 
     result = sanitize_error_text(text)
 
     assert "sk-live-abcdef123456" not in result
     assert "Authorization: [redacted]" in result
-    assert "Accept: */*" in result
 
 
 def test_redacts_authorization_header_without_scheme():
@@ -136,3 +135,61 @@ def test_cookie_in_prose_may_over_redact():
     # If redacted, becomes "Error: invalid [redacted]". Either way is safe:
     # no secrets are exposed by this pattern.
     assert True  # Pattern behavior is acceptable either way
+
+
+def test_redacts_multi_field_authorization_header():
+    """Regression test: multi-field Authorization headers (AWS SigV4) must be fully redacted.
+
+    AWS4-HMAC-SHA256 signature scheme has multiple comma-separated fields.
+    Partial redaction would leak SignedHeaders and Signature values.
+    """
+    text = (
+        "Authorization: AWS4-HMAC-SHA256 "
+        "Credential=AKIAIOSFODNN7EXAMPLE/20230101/us-east-1/service/aws4_request, "
+        "SignedHeaders=host;x-amz-date, "
+        "Signature=deadbeefcafe1234567890abcdef123456"
+    )
+
+    result = sanitize_error_text(text)
+
+    # All credential and signature components must be redacted
+    assert "AKIAIOSFODNN7EXAMPLE" not in result
+    assert "deadbeefcafe1234567890abcdef123456" not in result
+    assert "SignedHeaders" not in result
+    assert "Authorization: [redacted]" in result
+
+
+def test_redacts_digest_authorization_header():
+    """Regression test: Digest auth multi-field header must be fully redacted."""
+    text = (
+        "Authorization: Digest username=\"user\", realm=\"api\", "
+        "nonce=\"abc123\", uri=\"/x\", "
+        "response=\"d41d8cd98f00b204e9800998ecf8427e\""
+    )
+
+    result = sanitize_error_text(text)
+
+    # Digest response hash is a secret and must be redacted
+    assert "d41d8cd98f00b204e9800998ecf8427e" not in result
+    assert "realm" not in result
+    assert "nonce" not in result
+    assert "Authorization: [redacted]" in result
+
+
+def test_leaves_non_secret_compound_keys_unchanged():
+    """Regression test for Finding 1: non-secret compound keys should not be redacted.
+
+    Only explicitly secret-keyed compound params (refresh_token, client_secret, etc.)
+    should be redacted. Ordinary database/session identifiers should pass through.
+    """
+    text = (
+        "https://x.example.com?session_id=abc123&primary_key=42&foreign_key=99"
+    )
+
+    result = sanitize_error_text(text)
+
+    # Non-secret keys should be preserved unchanged
+    assert result == text
+    assert "session_id=abc123" in result
+    assert "primary_key=42" in result
+    assert "foreign_key=99" in result

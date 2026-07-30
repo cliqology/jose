@@ -2,6 +2,14 @@ import re
 
 _SECRET_QUERY_KEYS = (
     "access_token",
+    "refresh_token",
+    "id_token",
+    "csrf_token",
+    "session_token",
+    "auth_token",
+    "client_secret",
+    "secret_key",
+    "private_key",
     "api_key",
     "apikey",
     "token",
@@ -18,12 +26,9 @@ _SECRET_QUERY_KEYS = (
 )
 
 _QUERY_PARAM_PATTERN = re.compile(
-    r"(?i)\b((?:[a-zA-Z0-9]+_)?(?:"
-    + "|".join(_SECRET_QUERY_KEYS)
-    + r")(?:_[a-zA-Z0-9]+)?)="
-    r"[^&\s\"']+"
+    r"(?i)\b(" + "|".join(_SECRET_QUERY_KEYS) + r")=[^&\s\"']+"
 )
-_AUTH_HEADER_PATTERN = re.compile(r"(?i)\b(authorization:\s*)(?:\S+\s+)?\S+")
+_AUTH_HEADER_PATTERN = re.compile(r"(?i)\b(authorization:\s*)\S.*")
 _COOKIE_HEADER_PATTERN = re.compile(r"(?i)\b(cookie:\s*)\S.*")
 _USERINFO_URL_PATTERN = re.compile(r"(?i)(https?://)[^\s/@]+@")
 
