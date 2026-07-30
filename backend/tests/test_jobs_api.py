@@ -339,3 +339,59 @@ def test_list_jobs_api_hides_archived_by_default_but_shows_when_requested(
 
     explicit_response = client.get("/api/v1/jobs", params={"decision": "archived"})
     assert str(archived.id) in {item["id"] for item in explicit_response.json()}
+
+
+def _make_source(session, user, name="Source"):
+    import uuid
+
+    from jose.models import Source
+
+    source = Source(user_id=user.id, name=name, url=f"https://{uuid.uuid4().hex}.example.com")
+    session.add(source)
+    session.flush()
+    return source
+
+
+def test_get_job_detail_api_returns_sources_and_versions(client, db_session, user):
+    from jose.models import JobSource
+
+    company = _make_company(db_session, user)
+    job = _make_job(
+        db_session,
+        user,
+        company,
+        application_url="https://acme.example.com/1",
+        description_text="Build things.",
+    )
+    source = _make_source(db_session, user, name="Acme Careers")
+    db_session.add(
+        JobSource(user_id=user.id, job_id=job.id, source_id=source.id, is_active=True)
+    )
+    db_session.commit()
+
+    response = client.get(f"/api/v1/jobs/{job.id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["description_text"] == "Build things."
+    assert len(body["sources"]) == 1
+    assert body["sources"][0]["source_name"] == "Acme Careers"
+    assert body["versions"] == []
+
+
+def test_get_job_detail_api_404_for_missing_job(client):
+    import uuid
+
+    response = client.get(f"/api/v1/jobs/{uuid.uuid4()}")
+
+    assert response.status_code == 404
+
+
+def test_get_job_detail_api_404_for_other_users_job(client, db_session, other_user):
+    company = _make_company(db_session, other_user)
+    job = _make_job(db_session, other_user, company, application_url="https://b.example.com/1")
+    db_session.commit()
+
+    response = client.get(f"/api/v1/jobs/{job.id}")
+
+    assert response.status_code == 404
