@@ -26,6 +26,20 @@ export type Source = {
   last_success_at: string | null;
   last_job_count: number | null;
   last_error: string | null;
+  consecutive_failures: number;
+};
+
+export type SourceRun = {
+  id: string;
+  status: string;
+  started_at: string;
+  completed_at: string | null;
+  jobs_found: number;
+  jobs_created: number;
+  jobs_updated: number;
+  jobs_rejected: number;
+  error_type: string | null;
+  error_message: string | null;
 };
 
 export type Job = {
@@ -96,6 +110,14 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
 
 export async function getSources(): Promise<Source[]> {
   return getJson<Source[]>("/api/v1/sources");
+}
+
+export async function getSource(id: string): Promise<Source> {
+  return getJson<Source>(`/api/v1/sources/${id}`);
+}
+
+export async function getSourceRuns(id: string): Promise<SourceRun[]> {
+  return getJson<SourceRun[]>(`/api/v1/sources/${id}/runs`);
 }
 
 export async function getJobs(): Promise<Job[]> {
