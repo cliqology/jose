@@ -4,6 +4,7 @@ import json
 import re
 from datetime import UTC, datetime
 from html import unescape
+from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from bs4 import BeautifulSoup
@@ -152,3 +153,27 @@ def fuzzy_match_score(
     ).ratio()
     composite = 0.5 * company + 0.4 * title + 0.1 * location
     return {"company": company, "title": title, "location": location, "composite": composite}
+
+
+MATERIAL_SNAPSHOT_FIELDS = (
+    "title",
+    "location",
+    "remote_type",
+    "employment_type",
+    "compensation_min",
+    "compensation_max",
+    "currency",
+    "department",
+    "application_url",
+)
+
+
+def material_hash(snapshot: dict[str, Any]) -> str:
+    payload = {key: snapshot.get(key) for key in MATERIAL_SNAPSHOT_FIELDS}
+    description_html = snapshot.get("description_html")
+    payload["description"] = (
+        html_to_text(description_html)
+        if description_html
+        else normalize_whitespace(snapshot.get("description_text"))
+    )
+    return stable_hash(payload)

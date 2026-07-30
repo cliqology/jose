@@ -8,6 +8,7 @@ from jose.collectors.utils import (
     canonicalize_url,
     fuzzy_match_score,
     job_fingerprint,
+    material_hash,
     normalize_title,
 )
 
@@ -127,3 +128,42 @@ def test_fuzzy_match_score_unrelated_company_fails_prefilter():
         "Zephyr Logistics", "Warehouse Associate", "Austin, TX",
     )
     assert scores["company"] < COMPANY_ALIAS_THRESHOLD
+
+
+def _snapshot(**overrides):
+    base = {
+        "title": "Software Engineer",
+        "location": "San Francisco, CA",
+        "remote_type": None,
+        "employment_type": "full_time",
+        "compensation_min": 150000,
+        "compensation_max": 200000,
+        "currency": "USD",
+        "department": "Engineering",
+        "application_url": "https://acme.example.com/apply/1",
+        "description_text": None,
+        "description_html": "<p>Build great things.</p>",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_material_hash_ignores_description_markup_only_changes():
+    base = _snapshot()
+    reformatted = _snapshot(description_html="<div><p>Build   great things.</p></div>")
+
+    assert material_hash(base) == material_hash(reformatted)
+
+
+def test_material_hash_changes_on_compensation_change():
+    base = _snapshot()
+    changed = _snapshot(compensation_min=160000)
+
+    assert material_hash(base) != material_hash(changed)
+
+
+def test_material_hash_changes_on_description_text_change():
+    base = _snapshot()
+    changed = _snapshot(description_html="<p>Build great things, remotely.</p>")
+
+    assert material_hash(base) != material_hash(changed)
