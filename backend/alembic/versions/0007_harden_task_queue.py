@@ -5,7 +5,7 @@ Revises: 0006_job_removal_detection
 Create Date: 2026-07-30
 """
 
-from alembic import op
+from alembic import op  # noqa: I001
 import sqlalchemy as sa
 
 revision = "0007_harden_task_queue"

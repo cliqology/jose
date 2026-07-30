@@ -1,4 +1,4 @@
-from jose.models import Task, User
+from jose.models import Task
 
 
 def test_user_timezone_defaults_to_america_los_angeles(db_session, user):
