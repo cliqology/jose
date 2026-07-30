@@ -297,6 +297,53 @@ def test_merge_rejects_candidate_referencing_already_merged_job(db_session, user
     assert second_other.merged_into_job_id is None
 
 
+def test_merge_candidate_rejects_other_user(db_session, user, other_user):
+    company = _make_company(db_session, user)
+    job = _make_job(db_session, user, company)
+    other = _make_job(db_session, user, company, application_url="https://acme.example.com/2")
+    candidate = _make_candidate(db_session, user, job, other)
+    db_session.commit()
+
+    with pytest.raises(MergeCandidateNotFoundError):
+        merge_candidate(db_session, other_user, candidate.id, keep="job")
+
+    db_session.refresh(candidate)
+    assert candidate.status == "pending"
+    db_session.refresh(other)
+    assert other.status == "active"
+
+
+def test_dismiss_merge_candidate_rejects_other_user(db_session, user, other_user):
+    company = _make_company(db_session, user)
+    job = _make_job(db_session, user, company)
+    other = _make_job(db_session, user, company, application_url="https://acme.example.com/2")
+    candidate = _make_candidate(db_session, user, job, other)
+    db_session.commit()
+
+    with pytest.raises(MergeCandidateNotFoundError):
+        dismiss_merge_candidate(db_session, other_user, candidate.id)
+
+    db_session.refresh(candidate)
+    assert candidate.status == "pending"
+
+
+def test_unmerge_candidate_rejects_other_user(db_session, user, other_user):
+    company = _make_company(db_session, user)
+    job = _make_job(db_session, user, company)
+    other = _make_job(db_session, user, company, application_url="https://acme.example.com/2")
+    candidate = _make_candidate(db_session, user, job, other)
+    db_session.commit()
+    merge_candidate(db_session, user, candidate.id, keep="job")
+
+    with pytest.raises(MergeCandidateNotFoundError):
+        unmerge_candidate(db_session, other_user, candidate.id)
+
+    db_session.refresh(candidate)
+    assert candidate.status == "merged"
+    db_session.refresh(other)
+    assert other.status == "merged"
+
+
 def test_unmerge_requires_merged_status(db_session, user):
     company = _make_company(db_session, user)
     job = _make_job(db_session, user, company)
