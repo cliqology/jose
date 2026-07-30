@@ -169,6 +169,124 @@ def test_fuzzy_match_below_threshold_creates_no_candidate(db_session, user, monk
     assert candidates == []
 
 
+def test_recollecting_merged_away_job_updates_survivor_not_tombstone(
+    db_session, user, monkeypatch
+):
+    from jose.models import JobSource
+    from jose.services.job_merge import merge_candidate
+
+    first_source = create_source(
+        db_session, user, SourceCreate(name="OpenAI board", url="https://openai-a.example.com")
+    )
+    first = CollectedJob(
+        company_name="OpenAI",
+        title="Software Engineer",
+        location="San Francisco, CA",
+        application_url="https://openai-a.example.com/apply/1",
+    )
+    monkeypatch.setattr(
+        "jose.services.collection.get_collector",
+        lambda url, adapter: _FakeCollector([first]),
+    )
+    collect_source(db_session, first_source.id)
+
+    second_source = create_source(
+        db_session, user, SourceCreate(name="OpenAI board 2", url="https://openai-b.example.com")
+    )
+    second = CollectedJob(
+        company_name="OpenAI, Inc.",
+        title="Software Engineer",
+        location="San Francisco, CA",
+        application_url="https://openai-b.example.com/apply/1",
+    )
+    monkeypatch.setattr(
+        "jose.services.collection.get_collector",
+        lambda url, adapter: _FakeCollector([second]),
+    )
+    collect_source(db_session, second_source.id)
+
+    candidate = db_session.scalar(
+        select(JobMergeCandidate).where(JobMergeCandidate.user_id == user.id)
+    )
+    assert candidate is not None
+
+    # `candidate.job_id` is the newly collected job (from second_source), so keeping
+    # "candidate" tombstones it and keeps the first_source job as the survivor.
+    merged_away_id = candidate.job_id
+    survivor_id = candidate.candidate_job_id
+    merge_candidate(db_session, user, candidate.id, keep="candidate")
+
+    survivor = db_session.get(Job, survivor_id)
+    assert survivor is not None
+    last_seen_before = survivor.last_seen_at
+
+    # The merged-away job's original source re-collects the identical posting.
+    monkeypatch.setattr(
+        "jose.services.collection.get_collector",
+        lambda url, adapter: _FakeCollector([second]),
+    )
+    collect_source(db_session, second_source.id)
+
+    merged_away = db_session.get(Job, merged_away_id)
+    assert merged_away is not None
+    db_session.refresh(merged_away)
+    assert merged_away.status == "merged"
+    assert merged_away.merged_into_job_id == survivor_id
+
+    db_session.refresh(survivor)
+    assert survivor.status == "active"
+    assert survivor.last_seen_at > last_seen_before
+
+    # No third job was created, and the re-collected source links only to the survivor.
+    jobs = db_session.scalars(select(Job).where(Job.user_id == user.id)).all()
+    assert len(jobs) == 2
+
+    links = db_session.scalars(
+        select(JobSource).where(
+            JobSource.user_id == user.id, JobSource.source_id == second_source.id
+        )
+    ).all()
+    assert len(links) == 1
+    assert links[0].job_id == survivor_id
+
+
+def test_recollecting_orphaned_tombstone_revives_it(db_session, user, monkeypatch):
+    source = create_source(
+        db_session, user, SourceCreate(name="Acme board", url="https://acme-a.example.com")
+    )
+    item = CollectedJob(
+        company_name="Acme",
+        title="Software Engineer",
+        location="San Francisco, CA",
+        application_url="https://acme-a.example.com/apply/1",
+    )
+    monkeypatch.setattr(
+        "jose.services.collection.get_collector",
+        lambda url, adapter: _FakeCollector([item]),
+    )
+    collect_source(db_session, source.id)
+
+    job = db_session.scalar(select(Job).where(Job.user_id == user.id))
+    assert job is not None
+    # Orphaned tombstone: status "merged" with no reachable survivor, which is what
+    # the `ondelete=SET NULL` FK leaves behind when a survivor job is deleted.
+    job.status = "merged"
+    job.merged_into_job_id = None
+    original_fingerprint = job.fingerprint
+    db_session.commit()
+
+    collect_source(db_session, source.id)
+
+    # Reviving the orphan is the only option that neither loses the posting nor
+    # violates `uq_jobs_user_fingerprint`, which the tombstone still holds.
+    db_session.refresh(job)
+    assert job.status == "active"
+    assert job.merged_into_job_id is None
+    assert job.fingerprint == original_fingerprint
+    jobs = db_session.scalars(select(Job).where(Job.user_id == user.id)).all()
+    assert len(jobs) == 1
+
+
 def test_dismissed_pair_is_not_reproposed(db_session, user):
     from jose.services.collection import _flag_fuzzy_duplicate
 

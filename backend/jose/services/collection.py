@@ -105,6 +105,31 @@ def _find_fuzzy_candidate(
     return best
 
 
+def _resolve_merge_target(session: Session, job: Job) -> Job | None:
+    """Follow `merged_into_job_id` forward from a merged-away job to its survivor.
+
+    A merged-away job keeps its fingerprint, so a later collection run from its
+    original source still matches the tombstone on the Tier 0 fingerprint lookup.
+    Returning the survivor keeps the tombstone tombstoned instead of resurrecting it.
+
+    Returns `None` when the chain is broken (dangling or cyclical `merged_into_job_id`,
+    or a survivor owned by a different user), so the caller can fall back to the
+    normal Tier 1 / create path.
+    """
+    seen: set[uuid.UUID] = {job.id}
+    current = job
+    while current.status == "merged":
+        target_id = current.merged_into_job_id
+        if target_id is None or target_id in seen:
+            return None
+        survivor = session.get(Job, target_id)
+        if survivor is None or survivor.user_id != job.user_id:
+            return None
+        seen.add(survivor.id)
+        current = survivor
+    return current
+
+
 def _flag_fuzzy_duplicate(
     session: Session,
     user_id: uuid.UUID,
@@ -198,6 +223,18 @@ def _upsert_job(session: Session, source: Source, item: CollectedJob) -> tuple[b
     job = session.scalar(
         select(Job).where(Job.user_id == source.user_id, Job.fingerprint == fingerprint)
     )
+    matched_via_merge = False
+    if job is not None and job.status == "merged":
+        survivor = _resolve_merge_target(session, job)
+        if survivor is not None:
+            job = survivor
+            matched_via_merge = True
+        else:
+            # No reachable survivor (the FK is `ondelete=SET NULL`, so deleting a
+            # survivor orphans its tombstones). The tombstone is the only remaining
+            # record of this posting and it still owns the fingerprint, so revive it
+            # rather than attempt an insert that violates `uq_jobs_user_fingerprint`.
+            job.merged_into_job_id = None
     if not job and item.ats_type and item.external_job_id:
         job = session.scalar(
             select(Job).where(
@@ -247,7 +284,11 @@ def _upsert_job(session: Session, source: Source, item: CollectedJob) -> tuple[b
         job.removed_at = None
         job.status = "active"
         if job.content_hash != content_hash:
-            job.fingerprint = fingerprint
+            if not matched_via_merge:
+                # The merged-away job still owns this fingerprint and
+                # `uq_jobs_user_fingerprint` is unique per user, so the survivor
+                # must keep its own.
+                job.fingerprint = fingerprint
             job.company_id = company.id
             job.title = item.title
             job.normalized_title = normalize_title(item.title)
