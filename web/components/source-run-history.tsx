@@ -19,8 +19,11 @@ export function formatDuration(run: SourceRun): string {
 function RunStatus({ run }: { run: SourceRun }) {
   if (run.status === "failed") return <span className="status bad">Failed</span>;
   if (run.status === "running") return <span className="status neutral">Running</span>;
-  if (run.jobs_found === 0) return <span className="status neutral">Success · 0 jobs</span>;
-  return <span className="status good">Success</span>;
+  if (run.status === "success" && run.jobs_found === 0) {
+    return <span className="status neutral">Success · 0 jobs</span>;
+  }
+  if (run.status === "success") return <span className="status good">Success</span>;
+  return <span className="status neutral">{run.status}</span>;
 }
 
 export function SourceRunHistory({ runs }: { runs: SourceRun[] }) {

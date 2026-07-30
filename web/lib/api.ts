@@ -31,7 +31,7 @@ export type Source = {
 
 export type SourceRun = {
   id: string;
-  status: string;
+  status: "success" | "failed" | "running";
   started_at: string;
   completed_at: string | null;
   jobs_found: number;
