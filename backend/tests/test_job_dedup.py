@@ -235,6 +235,78 @@ def test_same_role_retitling_at_same_company_creates_candidate(db_session, user,
     assert candidates[0].status == "pending"
 
 
+def test_best_of_two_competing_fuzzy_candidates_is_chosen(db_session, user, monkeypatch):
+    """Two existing jobs both clear the thresholds; only the closest is proposed."""
+    weaker_source = create_source(
+        db_session, user, SourceCreate(name="Acme A", url="https://acme-a.example.com")
+    )
+    weaker = CollectedJob(
+        company_name="Acme",
+        title="Software Engineer II",
+        location="New York, NY",
+        application_url="https://acme-a.example.com/apply/1",
+    )
+    monkeypatch.setattr(
+        "jose.services.collection.get_collector",
+        lambda url, adapter: _FakeCollector([weaker]),
+    )
+    collect_source(db_session, weaker_source.id)
+
+    stronger_source = create_source(
+        db_session, user, SourceCreate(name="Acme B", url="https://acme-b.example.com")
+    )
+    stronger = CollectedJob(
+        company_name="Acme",
+        title="Software Engineer",
+        location="San Francisco, CA",
+        application_url="https://acme-b.example.com/apply/1",
+    )
+    monkeypatch.setattr(
+        "jose.services.collection.get_collector",
+        lambda url, adapter: _FakeCollector([stronger]),
+    )
+    collect_source(db_session, stronger_source.id)
+
+    # The second collection proposes one pairing already; resolve it so the third
+    # collection starts from a clean queue with two active jobs in scope.
+    for existing in db_session.scalars(
+        select(JobMergeCandidate).where(JobMergeCandidate.user_id == user.id)
+    ).all():
+        existing.status = "dismissed"
+    db_session.commit()
+
+    weaker_job = db_session.scalar(select(Job).where(Job.title == "Software Engineer II"))
+    stronger_job = db_session.scalar(
+        select(Job).where(Job.user_id == user.id, Job.title == "Software Engineer")
+    )
+    assert weaker_job is not None and stronger_job is not None
+
+    third_source = create_source(
+        db_session, user, SourceCreate(name="Acme C", url="https://acme-c.example.com")
+    )
+    incoming = CollectedJob(
+        company_name="Acme",
+        title="Software Engineer",
+        location="San Francisco, CA",
+        application_url="https://acme-c.example.com/apply/1",
+    )
+    monkeypatch.setattr(
+        "jose.services.collection.get_collector",
+        lambda url, adapter: _FakeCollector([incoming]),
+    )
+    collect_source(db_session, third_source.id)
+
+    new_candidates = db_session.scalars(
+        select(JobMergeCandidate).where(
+            JobMergeCandidate.user_id == user.id, JobMergeCandidate.status == "pending"
+        )
+    ).all()
+    assert len(new_candidates) == 1
+    # Identical title and location beat the weaker title/location match.
+    assert new_candidates[0].candidate_job_id == stronger_job.id
+    assert new_candidates[0].candidate_job_id != weaker_job.id
+
+
 def test_recollecting_merged_away_job_updates_survivor_not_tombstone(
     db_session, user, monkeypatch
 ):
