@@ -45,6 +45,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://jose:jose-local-password@db:5432/jose}
     command: ["python", "-m", "jose.cli", "worker"]
+    stop_grace_period: 60s
     volumes:
       - ./backend:/app
       - ./data:/data

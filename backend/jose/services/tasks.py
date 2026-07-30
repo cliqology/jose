@@ -29,6 +29,7 @@ def enqueue_task(
     payload: dict,
     idempotency_key: str,
     priority: int = 100,
+    payload_version: int = 1,
 ) -> Task | None:
     task = Task(
         user_id=user.id,
@@ -36,6 +37,7 @@ def enqueue_task(
         payload=payload,
         priority=priority,
         idempotency_key=idempotency_key,
+        payload_version=payload_version,
     )
     session.add(task)
     try:
@@ -64,6 +66,7 @@ def enqueue_collect_all(session: Session, user: User, force: bool = False) -> li
             payload={"source_id": str(source.id)},
             idempotency_key=f"collect_source:{source.id}:{suffix}",
             priority=source.priority,
+            payload_version=1,
         )
         if task:
             tasks.append(task)
@@ -101,13 +104,14 @@ def backoff_delay(attempts: int) -> timedelta:
 
 
 def run_task(session: Session, task: Task) -> None:
+    claimed_worker_id = task.worker_id
     try:
         if task.task_type == "collect_source":
             collect_source(session, uuid.UUID(task.payload["source_id"]))
         else:
             raise ValueError(f"Unknown task type: {task.task_type}")
         task = session.get(Task, task.id)
-        if task:
+        if task and task.status == "running" and task.worker_id == claimed_worker_id:
             task.status = "completed"
             task.completed_at = utcnow()
             task.last_error = None
@@ -115,7 +119,7 @@ def run_task(session: Session, task: Task) -> None:
     except Exception as exc:
         session.rollback()
         task = session.get(Task, task.id)
-        if task:
+        if task and task.status == "running" and task.worker_id == claimed_worker_id:
             task.last_error = f"{type(exc).__name__}: {exc}"
             task.completed_at = utcnow()
             if task.attempts < task.max_attempts:

@@ -151,6 +151,7 @@ class TaskRead(BaseModel):
     task_type: str
     status: str
     attempts: int
+    payload_version: int
     scheduled_at: datetime
     started_at: datetime | None
     completed_at: datetime | None

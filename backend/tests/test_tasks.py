@@ -107,6 +107,39 @@ def test_task_failed_terminally_emits_system_event(db_session, user):
     assert event.data["attempts"] == 1
 
 
+def test_run_task_does_not_overwrite_a_task_reaped_out_from_under_it(db_session, user):
+    task = enqueue_task(
+        db_session,
+        user,
+        task_type="unsupported_test_type",
+        payload={},
+        idempotency_key="ownership-guard-1",
+    )
+    claimed = claim_next_task(db_session, "worker-a")
+
+    # Simulate the reaper claiming this row out from under worker-a while it's "in flight".
+    task.status = "failed"
+    task.worker_id = None
+    db_session.commit()
+
+    run_task(db_session, claimed)
+
+    db_session.refresh(task)
+    assert task.status == "failed"
+
+
+def test_enqueue_task_can_stamp_a_non_default_payload_version(db_session, user):
+    task = enqueue_task(
+        db_session,
+        user,
+        task_type="collect_source",
+        payload={"source_id": "abc"},
+        idempotency_key="payload-version-explicit",
+        payload_version=2,
+    )
+    assert task.payload_version == 2
+
+
 def test_reap_stale_tasks_requeues_when_attempts_remain(db_session, user):
     task = enqueue_task(
         db_session, user, task_type="collect_source", payload={}, idempotency_key="stale-1"
