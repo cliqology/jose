@@ -3,7 +3,7 @@ import uuid
 import pytest
 from sqlalchemy import select
 
-from jose.models import Company, Job, JobSource
+from jose.models import Company, Job, JobSource, SourceRun
 from jose.models.base import utcnow
 from jose.schemas import SourceAdapter, SourceCategory, SourceCreate, SourceRead, SourceUpdate
 from jose.services.sources import (
@@ -13,6 +13,7 @@ from jose.services.sources import (
     create_source,
     delete_source,
     get_source,
+    list_source_runs,
     list_sources,
     update_source,
 )
@@ -251,3 +252,38 @@ def test_delete_source_does_not_delete_canonical_job_found_elsewhere(db_session,
         select(JobSource).where(JobSource.job_id == job.id)
     ).all()
     assert [link.source_id for link in remaining_links] == [source_b.id]
+
+
+def test_list_source_runs_orders_newest_first_and_respects_limit(db_session, user):
+    from datetime import timedelta
+
+    source = create_source(
+        db_session, user, SourceCreate(name="Busy", url="https://busy.example.com/jobs")
+    )
+    base = utcnow()
+    for i in range(25):
+        db_session.add(
+            SourceRun(
+                user_id=user.id,
+                source_id=source.id,
+                status="success",
+                started_at=base + timedelta(seconds=i),
+                jobs_found=i,
+            )
+        )
+    db_session.commit()
+
+    runs = list_source_runs(db_session, user, source.id)
+
+    assert len(runs) == 20
+    assert runs[0].jobs_found == 24
+    assert runs[-1].jobs_found == 5
+
+
+def test_list_source_runs_raises_for_other_users_source(db_session, user, other_user):
+    theirs = create_source(
+        db_session, other_user, SourceCreate(name="Theirs", url="https://runs-theirs.example.com")
+    )
+
+    with pytest.raises(SourceNotFoundError):
+        list_source_runs(db_session, user, theirs.id)

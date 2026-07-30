@@ -3,7 +3,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from jose.models import Source, User
+from jose.models import Source, SourceRun, User
 from jose.schemas import SourceCreate, SourceUpdate
 
 
@@ -36,6 +36,20 @@ def get_source(session: Session, user: User, source_id: uuid.UUID) -> Source:
     if not source:
         raise SourceNotFoundError(str(source_id))
     return source
+
+
+def list_source_runs(
+    session: Session, user: User, source_id: uuid.UUID, limit: int = 20
+) -> list[SourceRun]:
+    get_source(session, user, source_id)
+    return list(
+        session.scalars(
+            select(SourceRun)
+            .where(SourceRun.user_id == user.id, SourceRun.source_id == source_id)
+            .order_by(SourceRun.started_at.desc())
+            .limit(limit)
+        ).all()
+    )
 
 
 def _raise_if_duplicate_url(
