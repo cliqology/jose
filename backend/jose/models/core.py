@@ -51,6 +51,7 @@ class Source(UUIDPrimaryKeyMixin, TimestampMixin, UserOwnedMixin, Base):
     last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_job_count: Mapped[int | None] = mapped_column(Integer)
     last_error: Mapped[str | None] = mapped_column(Text)
+    consecutive_failures: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     detected_platform: Mapped[str | None] = mapped_column(String(100))
     detection_status: Mapped[str | None] = mapped_column(String(20))
     detected_application_url: Mapped[str | None] = mapped_column(Text)
