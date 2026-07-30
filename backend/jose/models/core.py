@@ -26,6 +26,9 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     display_name: Mapped[str | None] = mapped_column(String(200))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    timezone: Mapped[str] = mapped_column(
+        String(50), default="America/Los_Angeles", nullable=False
+    )
 
 
 class Source(UUIDPrimaryKeyMixin, TimestampMixin, UserOwnedMixin, Base):
@@ -213,6 +216,7 @@ class Task(UUIDPrimaryKeyMixin, TimestampMixin, UserOwnedMixin, Base):
 
     task_type: Mapped[str] = mapped_column(String(100), index=True)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    payload_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     status: Mapped[str] = mapped_column(String(30), default="queued", index=True)
     priority: Mapped[int] = mapped_column(Integer, default=100)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
