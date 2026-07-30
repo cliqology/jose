@@ -3,7 +3,7 @@ from conftest import _make_company, _make_job
 from sqlalchemy import select
 
 from jose.collectors.base import CollectedJob, CollectionResult
-from jose.models import Job, JobSource, JobVersion, Source
+from jose.models import Job, JobMergeCandidate, JobSource, JobVersion, Source
 from jose.schemas import SourceCreate
 from jose.services.collection import collect_source
 from jose.services.sources import create_source
@@ -239,3 +239,100 @@ def test_revival_reactivates_job_and_link(db_session, user, monkeypatch):
     assert job.removed_at is None
     assert link.is_active is True
     assert link.removed_at is None
+
+
+def test_repost_linked_to_removed_job_above_threshold(db_session, user, monkeypatch):
+    source = create_source(
+        db_session, user, SourceCreate(name="Acme", url="https://acme-repost1.example.com/jobs")
+    )
+    original = CollectedJob(
+        company_name="Acme",
+        title="Software Engineer",
+        location="San Francisco, CA",
+        application_url="https://acme-repost1.example.com/apply/1",
+        ats_type="greenhouse",
+        external_job_id="gh-100",
+    )
+    _collect(monkeypatch, db_session, source, [original])
+    _collect(monkeypatch, db_session, source, [])
+
+    removed_job = db_session.scalar(select(Job).where(Job.user_id == user.id))
+    assert removed_job.status == "removed"
+
+    reposted = CollectedJob(
+        company_name="Acme",
+        title="Software Engineer",
+        location="San Francisco, CA",
+        application_url="https://acme-repost1.example.com/apply/1-repost",
+        ats_type="greenhouse",
+        external_job_id="gh-200",
+    )
+    _collect(monkeypatch, db_session, source, [reposted])
+
+    jobs = db_session.scalars(select(Job).where(Job.user_id == user.id)).all()
+    assert len(jobs) == 2
+    new_job = next(j for j in jobs if j.id != removed_job.id)
+    assert new_job.reposted_from_job_id == removed_job.id
+
+
+def test_repost_not_linked_below_threshold(db_session, user, monkeypatch):
+    source = create_source(
+        db_session, user, SourceCreate(name="Acme", url="https://acme-repost2.example.com/jobs")
+    )
+    original = CollectedJob(
+        company_name="Acme",
+        title="Backend Engineer",
+        location="San Francisco, CA",
+        application_url="https://acme-repost2.example.com/apply/1",
+    )
+    _collect(monkeypatch, db_session, source, [original])
+    _collect(monkeypatch, db_session, source, [])
+
+    removed_job = db_session.scalar(select(Job).where(Job.user_id == user.id))
+    assert removed_job.status == "removed"
+
+    unrelated = CollectedJob(
+        company_name="Acme",
+        title="Enterprise Sales Director",
+        location="San Francisco, CA",
+        application_url="https://acme-repost2.example.com/apply/2",
+    )
+    _collect(monkeypatch, db_session, source, [unrelated])
+
+    jobs = db_session.scalars(select(Job).where(Job.user_id == user.id)).all()
+    assert len(jobs) == 2
+    new_job = next(j for j in jobs if j.id != removed_job.id)
+    assert new_job.reposted_from_job_id is None
+
+
+def test_active_fuzzy_match_uses_merge_queue_not_repost_link(db_session, user, monkeypatch):
+    source = create_source(
+        db_session, user, SourceCreate(name="OpenAI board", url="https://openai-repost-a.example.com")
+    )
+    first = CollectedJob(
+        company_name="OpenAI",
+        title="Software Engineer",
+        location="San Francisco, CA",
+        application_url="https://openai-repost-a.example.com/apply/1",
+    )
+    _collect(monkeypatch, db_session, source, [first])
+
+    second_source = create_source(
+        db_session, user, SourceCreate(name="OpenAI board 2", url="https://openai-repost-b.example.com")
+    )
+    second = CollectedJob(
+        company_name="OpenAI, Inc.",
+        title="Software Engineer",
+        location="San Francisco, CA",
+        application_url="https://openai-repost-b.example.com/apply/1",
+    )
+    _collect(monkeypatch, db_session, second_source, [second])
+
+    jobs = db_session.scalars(select(Job).where(Job.user_id == user.id)).all()
+    assert len(jobs) == 2
+    assert all(job.reposted_from_job_id is None for job in jobs)
+
+    candidates = db_session.scalars(
+        select(JobMergeCandidate).where(JobMergeCandidate.user_id == user.id)
+    ).all()
+    assert len(candidates) == 1

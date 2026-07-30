@@ -116,12 +116,17 @@ def _sweep_inactive_job_sources(
 
 
 def _find_fuzzy_candidate(
-    session: Session, user_id: uuid.UUID, company_name: str, title: str, location: str | None
+    session: Session,
+    user_id: uuid.UUID,
+    company_name: str,
+    title: str,
+    location: str | None,
+    status: str,
 ) -> tuple[Job, dict[str, float]] | None:
     rows = session.execute(
         select(Job, Company.name)
         .join(Company, Company.id == Job.company_id)
-        .where(Job.user_id == user_id, Job.status == "active")
+        .where(Job.user_id == user_id, Job.status == status)
     ).all()
     best: tuple[Job, dict[str, float]] | None = None
     for candidate_job, candidate_company_name in rows:
@@ -288,7 +293,14 @@ def _upsert_job(session: Session, source: Source, item: CollectedJob) -> tuple[b
     version_is_material = False
     if not job:
         fuzzy_match = _find_fuzzy_candidate(
-            session, source.user_id, company_name, item.title, item.location
+            session, source.user_id, company_name, item.title, item.location, status="active"
+        )
+        repost_match = (
+            None
+            if fuzzy_match is not None
+            else _find_fuzzy_candidate(
+                session, source.user_id, company_name, item.title, item.location, status="removed"
+            )
         )
         job = Job(
             user_id=source.user_id,
@@ -312,6 +324,7 @@ def _upsert_job(session: Session, source: Source, item: CollectedJob) -> tuple[b
             fingerprint=fingerprint,
             content_hash=content_hash,
             raw_payload=raw_payload,
+            reposted_from_job_id=repost_match[0].id if repost_match else None,
         )
         session.add(job)
         session.flush()
