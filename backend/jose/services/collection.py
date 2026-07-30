@@ -36,7 +36,9 @@ def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-def collect_source(session: Session, source_id: uuid.UUID) -> SourceRun:
+def collect_source(
+    session: Session, source_id: uuid.UUID, *, count_failure: bool = True
+) -> SourceRun:
     source = session.get(Source, source_id)
     if not source:
         raise ValueError(f"Source not found: {source_id}")
@@ -92,7 +94,8 @@ def collect_source(session: Session, source_id: uuid.UUID) -> SourceRun:
             run.error_type = error_type
             run.error_message = error_message
             source.last_error = f"{error_type}: {error_message}"[:4000]
-            source.consecutive_failures += 1
+            if count_failure:
+                source.consecutive_failures += 1
             session.commit()
         raise
 

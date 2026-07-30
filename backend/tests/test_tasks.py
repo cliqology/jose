@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
+from jose.collectors.base import CollectedJob, CollectionResult
 from jose.config import get_settings
 from jose.db.session import SessionLocal
 from jose.models import SystemEvent, Task
@@ -23,6 +24,22 @@ from jose.services.tasks import (
     run_task,
     worker_loop,
 )
+
+
+class _FailingCollector:
+    def __init__(self, message: str) -> None:
+        self._message = message
+
+    def collect(self, source_name: str, source_url: str) -> CollectionResult:
+        raise RuntimeError(self._message)
+
+
+class _FakeCollector:
+    def __init__(self, jobs: list[CollectedJob]) -> None:
+        self._jobs = jobs
+
+    def collect(self, source_name: str, source_url: str) -> CollectionResult:
+        return CollectionResult(jobs=self._jobs, rejected_count=0)
 
 
 def test_user_timezone_defaults_to_america_los_angeles(db_session, user):
@@ -304,3 +321,133 @@ def test_concurrent_claims_never_return_the_same_task(db_session, user):
 
     assert len(claimed_ids) == 20
     assert len(set(claimed_ids)) == 20
+
+
+def test_collect_source_task_does_not_count_failure_until_final_attempt(
+    db_session, user, monkeypatch
+):
+    source = create_source(
+        db_session,
+        user,
+        SourceCreate(name="Flaky Task", url="https://flaky-task.example.com/jobs"),
+    )
+    monkeypatch.setattr(
+        "jose.services.collection.get_collector",
+        lambda url, adapter: _FailingCollector("boom"),
+    )
+    task = enqueue_task(
+        db_session,
+        user,
+        task_type="collect_source",
+        payload={"source_id": str(source.id)},
+        idempotency_key="retry-consecutive-1",
+    )
+    task.max_attempts = 2
+    db_session.commit()
+
+    # Attempt 1 of 2: this failure will be automatically retried, so it must not
+    # count against consecutive_failures yet.
+    claimed = claim_next_task(db_session, "test-worker")
+    run_task(db_session, claimed)
+    db_session.refresh(task)
+    db_session.refresh(source)
+    assert task.status == "queued"
+    assert task.attempts == 1
+    assert source.consecutive_failures == 0
+
+    # The requeue schedules a future retry via backoff; pull it back so the test
+    # doesn't have to sleep through the delay.
+    task.scheduled_at = datetime.now(UTC)
+    db_session.commit()
+
+    # Attempt 2 of 2: this is the final attempt, so the task fails terminally and
+    # the failure should now count.
+    claimed = claim_next_task(db_session, "test-worker")
+    run_task(db_session, claimed)
+    db_session.refresh(task)
+    db_session.refresh(source)
+    assert task.status == "failed"
+    assert task.attempts == 2
+    assert source.consecutive_failures == 1
+
+
+def test_collect_source_task_success_after_retry_resets_consecutive_failures(
+    db_session, user, monkeypatch
+):
+    source = create_source(
+        db_session,
+        user,
+        SourceCreate(name="Recovering Task", url="https://recovering-task.example.com/jobs"),
+    )
+    task = enqueue_task(
+        db_session,
+        user,
+        task_type="collect_source",
+        payload={"source_id": str(source.id)},
+        idempotency_key="retry-consecutive-2",
+    )
+    task.max_attempts = 3
+    db_session.commit()
+
+    monkeypatch.setattr(
+        "jose.services.collection.get_collector",
+        lambda url, adapter: _FailingCollector("boom"),
+    )
+    claimed = claim_next_task(db_session, "test-worker")
+    run_task(db_session, claimed)
+    db_session.refresh(task)
+    db_session.refresh(source)
+    assert task.status == "queued"
+    assert task.attempts == 1
+    assert source.consecutive_failures == 0
+
+    # The requeue schedules a future retry via backoff; pull it back so the test
+    # doesn't have to sleep through the delay.
+    task.scheduled_at = datetime.now(UTC)
+    db_session.commit()
+
+    job = CollectedJob(
+        company_name="Acme",
+        title="Engineer",
+        application_url="https://recovering-task.example.com/apply/1",
+    )
+    monkeypatch.setattr(
+        "jose.services.collection.get_collector",
+        lambda url, adapter: _FakeCollector([job]),
+    )
+    claimed = claim_next_task(db_session, "test-worker")
+    run_task(db_session, claimed)
+    db_session.refresh(task)
+    db_session.refresh(source)
+    assert task.status == "completed"
+    assert task.attempts == 2
+    assert task.attempts < task.max_attempts
+    assert source.consecutive_failures == 0
+
+
+def test_task_last_error_is_sanitized(db_session, user, monkeypatch):
+    source = create_source(
+        db_session, user, SourceCreate(name="Leaky Task", url="https://leaky-task.example.com/jobs")
+    )
+    monkeypatch.setattr(
+        "jose.services.collection.get_collector",
+        lambda url, adapter: _FailingCollector("failed: token=sk-live-abc123"),
+    )
+    task = enqueue_task(
+        db_session,
+        user,
+        task_type="collect_source",
+        payload={"source_id": str(source.id)},
+        idempotency_key="sanitize-task-error-1",
+    )
+    task.max_attempts = 1
+    db_session.commit()
+
+    claimed = claim_next_task(db_session, "test-worker")
+    run_task(db_session, claimed)
+
+    db_session.refresh(task)
+    assert task.status == "failed"
+    assert task.last_error is not None
+    assert "sk-live-abc123" not in task.last_error
+    assert "[redacted]" in task.last_error

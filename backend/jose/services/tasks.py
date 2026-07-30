@@ -16,6 +16,7 @@ from jose.config import get_settings
 from jose.db.session import SessionLocal
 from jose.models import Source, SystemEvent, Task, User
 from jose.services.collection import collect_source
+from jose.services.error_sanitizer import sanitize_error_text
 
 
 def utcnow() -> datetime:
@@ -107,7 +108,11 @@ def run_task(session: Session, task: Task) -> None:
     claimed_worker_id = task.worker_id
     try:
         if task.task_type == "collect_source":
-            collect_source(session, uuid.UUID(task.payload["source_id"]))
+            collect_source(
+                session,
+                uuid.UUID(task.payload["source_id"]),
+                count_failure=task.attempts >= task.max_attempts,
+            )
         else:
             raise ValueError(f"Unknown task type: {task.task_type}")
         task = session.get(Task, task.id)
@@ -120,7 +125,7 @@ def run_task(session: Session, task: Task) -> None:
         session.rollback()
         task = session.get(Task, task.id)
         if task and task.status == "running" and task.worker_id == claimed_worker_id:
-            task.last_error = f"{type(exc).__name__}: {exc}"
+            task.last_error = f"{type(exc).__name__}: {sanitize_error_text(str(exc))}"
             task.completed_at = utcnow()
             if task.attempts < task.max_attempts:
                 task.status = "queued"
