@@ -18,10 +18,13 @@ _SECRET_QUERY_KEYS = (
 )
 
 _QUERY_PARAM_PATTERN = re.compile(
-    r"(?i)\b(" + "|".join(_SECRET_QUERY_KEYS) + r")=[^&\s\"']+"
+    r"(?i)\b((?:[a-zA-Z0-9]+_)?(?:"
+    + "|".join(_SECRET_QUERY_KEYS)
+    + r")(?:_[a-zA-Z0-9]+)?)="
+    r"[^&\s\"']+"
 )
-_AUTH_HEADER_PATTERN = re.compile(r"(?i)(authorization:\s*(?:bearer|basic|token)?\s*)\S+")
-_COOKIE_HEADER_PATTERN = re.compile(r"(?i)(cookie:\s*)\S.*")
+_AUTH_HEADER_PATTERN = re.compile(r"(?i)\b(authorization:\s*)(?:\S+\s+)?\S+")
+_COOKIE_HEADER_PATTERN = re.compile(r"(?i)\b(cookie:\s*)\S.*")
 _USERINFO_URL_PATTERN = re.compile(r"(?i)(https?://)[^\s/@]+@")
 
 
