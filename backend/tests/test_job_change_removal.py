@@ -1,8 +1,6 @@
-import uuid
+from conftest import _make_company, _make_job
 
 from jose.models import JobSource, JobVersion, Source
-
-from conftest import _make_company, _make_job
 
 
 def test_job_source_defaults_to_active(db_session, user):

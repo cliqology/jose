@@ -1,6 +1,6 @@
 """Add job-source active/removed tracking, job reposts, and material version flag.
 
-Revision ID: 0006_job_change_removal_detection
+Revision ID: 0006_job_removal_detection
 Revises: 0005_job_merge_candidates
 Create Date: 2026-07-30
 """
@@ -9,7 +9,7 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-revision = "0006_job_removal"
+revision = "0006_job_removal_detection"
 down_revision = "0005_job_merge_candidates"
 branch_labels = None
 depends_on = None
