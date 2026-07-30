@@ -294,3 +294,48 @@ def test_dashboard_summary_excludes_rows_outside_24h_window(db_session, user):
     assert summary.jobs_changed_last_24h == 1
     assert summary.jobs_removed_last_24h == 1
     assert summary.jobs_reposted_last_24h == 1
+
+
+def test_list_jobs_api_filters_by_query_params(client, db_session, user):
+    company = _make_company(db_session, user, name="Acme Robotics")
+    match = _make_job(
+        db_session,
+        user,
+        company,
+        title="Platform Engineer",
+        application_url="https://acme.example.com/match",
+    )
+    _make_job(
+        db_session,
+        user,
+        company,
+        title="Sales Rep",
+        application_url="https://acme.example.com/other",
+    )
+    db_session.commit()
+
+    response = client.get("/api/v1/jobs", params={"title": "platform"})
+
+    assert response.status_code == 200
+    ids = {item["id"] for item in response.json()}
+    assert ids == {str(match.id)}
+
+
+def test_list_jobs_api_hides_archived_by_default_but_shows_when_requested(
+    client, db_session, user
+):
+    company = _make_company(db_session, user)
+    archived = _make_job(
+        db_session,
+        user,
+        company,
+        application_url="https://acme.example.com/archived",
+        user_decision="archived",
+    )
+    db_session.commit()
+
+    default_response = client.get("/api/v1/jobs")
+    assert str(archived.id) not in {item["id"] for item in default_response.json()}
+
+    explicit_response = client.get("/api/v1/jobs", params={"decision": "archived"})
+    assert str(archived.id) in {item["id"] for item in explicit_response.json()}
