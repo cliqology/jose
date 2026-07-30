@@ -13,6 +13,7 @@ from jose.collectors.registry import match_known_ats_host
 from jose.collectors.utils import find_json_ld_postings
 from jose.models import Source, User
 from jose.models.base import utcnow
+from jose.services.error_sanitizer import sanitize_error_text
 
 AGGREGATOR_SIGNATURES: dict[str, str] = {
     "getro.com": "getro",
@@ -138,7 +139,13 @@ def detect_platforms_for_vc_sources(session: Session, user: User) -> list[ProbeR
             source.detected_application_url = outcome.detected_application_url
             source.last_error = None
         else:
-            source.last_error = outcome.error
+            # `outcome.error` may come from `probe_source`'s own internal
+            # CollectorError/httpx.HTTPError handling (the common case, which never
+            # raises past this point) or from the `except Exception` above (an
+            # unexpected escape). Sanitize at this single assignment point so
+            # `Source.last_error` — rendered in full on the source detail page —
+            # never carries a secret regardless of which path produced the text.
+            source.last_error = sanitize_error_text(outcome.error) if outcome.error else None
         source.detection_status = outcome.status
         source.detected_at = utcnow()
         results.append(

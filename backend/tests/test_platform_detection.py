@@ -376,6 +376,61 @@ def test_detect_platforms_clears_last_error_on_success(db_session, user, monkeyp
     assert source.last_error is None
 
 
+def test_detect_platforms_sanitizes_error_containing_secret(db_session, user, monkeypatch):
+    source = create_source(
+        db_session,
+        user,
+        SourceCreate(
+            name="Leaky Probe",
+            url="https://jobs.leaky-probe.com/",
+            category=SourceCategory.VC_PORTFOLIO,
+        ),
+    )
+
+    def fake_probe(url: str) -> ProbeOutcome:
+        raise RuntimeError("GET failed: token=sk-live-abc123 -> 401")
+
+    monkeypatch.setattr("jose.services.platform_detection.probe_source", fake_probe)
+
+    results = detect_platforms_for_vc_sources(db_session, user)
+
+    assert results[0].status == "error"
+    db_session.refresh(source)
+    assert source.detection_status == "error"
+    assert source.last_error is not None
+    assert "sk-live-abc123" not in source.last_error
+    assert "[redacted]" in source.last_error
+
+
+def test_detect_platforms_sanitizes_error_from_probe_sources_own_http_failure(
+    db_session, user, monkeypatch
+):
+    """probe_source's own internal except (CollectorError/httpx.HTTPError) never
+    raises past it — it returns a ProbeOutcome directly, bypassing the outer
+    `except Exception` in detect_platforms_for_vc_sources entirely. This is the
+    common real-world failure path (a bad status code, a timeout), so it must be
+    sanitized too, not just the outer-except path exercised above.
+    """
+    source = create_source(
+        db_session,
+        user,
+        SourceCreate(
+            name="Leaky Status",
+            url="https://jobs.leaky-status.com/?api_key=sk-live-def456",
+            category=SourceCategory.VC_PORTFOLIO,
+        ),
+    )
+    patch_client(monkeypatch, FakeResponse(status_code=500))
+
+    results = detect_platforms_for_vc_sources(db_session, user)
+
+    assert results[0].status == "error"
+    db_session.refresh(source)
+    assert source.last_error is not None
+    assert "sk-live-def456" not in source.last_error
+    assert "[redacted]" in source.last_error
+
+
 def test_render_source_catalog_includes_vc_sources(db_session, user):
     source = create_source(
         db_session,
