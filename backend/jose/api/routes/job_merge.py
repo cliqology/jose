@@ -6,7 +6,11 @@ from sqlalchemy import select
 
 from jose.api.deps import CurrentUser, DBSession
 from jose.models import Company, Job, JobMergeCandidate
-from jose.schemas import JobMergeCandidateRead, JobMergeResolveRequest
+from jose.schemas import (
+    JobMergeCandidateListRead,
+    JobMergeCandidateRead,
+    JobMergeResolveRequest,
+)
 from jose.services import job_merge as job_merge_service
 
 router = APIRouter(prefix="/api/v1/job-merge-candidates", tags=["job-merge-candidates"])
@@ -30,7 +34,7 @@ def _job_summary(db: DBSession, job_id: uuid.UUID) -> dict[str, Any]:
     }
 
 
-@router.get("")
+@router.get("", response_model=list[JobMergeCandidateListRead])
 def list_job_merge_candidates(
     db: DBSession, user: CurrentUser, status: str = Query(default="pending")
 ) -> list[dict[str, Any]]:

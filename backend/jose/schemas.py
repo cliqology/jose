@@ -125,6 +125,25 @@ class JobMergeCandidateRead(BaseModel):
     resolved_at: datetime | None
 
 
+class JobMergeSummary(BaseModel):
+    id: uuid.UUID
+    title: str
+    company_name: str
+    location: str | None
+    application_url: str
+    status: str
+
+
+class JobMergeCandidateListRead(BaseModel):
+    id: uuid.UUID
+    status: str
+    similarity_score: float
+    matched_signals: dict[str, float]
+    created_at: datetime
+    job: JobMergeSummary
+    candidate_job: JobMergeSummary
+
+
 class TaskRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
