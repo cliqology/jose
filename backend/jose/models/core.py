@@ -111,6 +111,7 @@ class Job(UUIDPrimaryKeyMixin, TimestampMixin, UserOwnedMixin, Base):
         UniqueConstraint("user_id", "fingerprint", name="uq_jobs_user_fingerprint"),
         Index("ix_jobs_user_status", "user_id", "status"),
         Index("ix_jobs_user_first_seen", "user_id", "first_seen_at"),
+        Index("ix_jobs_user_decision", "user_id", "user_decision"),
     )
 
     company_id: Mapped[uuid.UUID] = mapped_column(
@@ -136,6 +137,7 @@ class Job(UUIDPrimaryKeyMixin, TimestampMixin, UserOwnedMixin, Base):
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(50), default="active")
+    user_decision: Mapped[str | None] = mapped_column(String(20))
     fingerprint: Mapped[str] = mapped_column(String(64))
     content_hash: Mapped[str] = mapped_column(String(64))
     raw_payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
