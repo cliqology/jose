@@ -1,9 +1,13 @@
+import os
+import socket
+import threading
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
 from jose.config import get_settings
 from jose.models import SystemEvent, Task
+from jose.services import tasks as tasks_module
 from jose.services.tasks import (
     backoff_delay,
     claim_next_task,
@@ -172,3 +176,39 @@ def test_worker_loop_once_reaps_stale_task_before_claiming(db_session, user):
     assert task.attempts == 2
     assert task.status == "queued"
     assert task.scheduled_at > datetime.now(UTC)
+
+
+def test_worker_identity_includes_hostname_and_pid():
+    identity_a = tasks_module._worker_identity()
+    identity_b = tasks_module._worker_identity()
+
+    assert identity_a.startswith(f"{socket.gethostname()}-{os.getpid()}-")
+    assert identity_a != identity_b
+
+
+def test_worker_loop_finishes_current_task_then_stops_on_shutdown(db_session, user, monkeypatch):
+    task = enqueue_task(
+        db_session,
+        user,
+        task_type="collect_source",
+        payload={},
+        idempotency_key="shutdown-1",
+    )
+    stop_event = threading.Event()
+    original_claim = tasks_module.claim_next_task
+    calls = []
+
+    def _claim_then_request_shutdown(session, worker_id):
+        calls.append(1)
+        claimed = original_claim(session, worker_id)
+        stop_event.set()
+        return claimed
+
+    monkeypatch.setattr(tasks_module, "claim_next_task", _claim_then_request_shutdown)
+
+    tasks_module.worker_loop(once=False, stop_event=stop_event)
+
+    assert calls == [1]
+    db_session.expire_all()
+    db_session.refresh(task)
+    assert task.attempts == 1

@@ -1,4 +1,8 @@
+import os
 import random
+import signal
+import socket
+import threading
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -172,16 +176,42 @@ def reap_stale_tasks(session: Session, threshold: timedelta) -> list[Task]:
     return reaped
 
 
-def worker_loop(once: bool = False) -> None:
+def _worker_identity() -> str:
+    return f"{socket.gethostname()}-{os.getpid()}-{uuid.uuid4().hex[:6]}"
+
+
+def worker_loop(once: bool = False, stop_event: threading.Event | None = None) -> None:
     settings = get_settings()
-    while True:
-        with SessionLocal() as session:
-            reap_stale_tasks(session, timedelta(minutes=settings.task_stale_running_minutes))
-            task = claim_next_task(session, settings.worker_id)
-            if task:
-                run_task(session, task)
-            elif once:
+    worker_id = _worker_identity()
+    owns_event = stop_event is None
+    stop_event = stop_event or threading.Event()
+    previous_handlers: dict[int, object] = {}
+
+    if owns_event:
+
+        def _handle_signal(signum, frame):
+            stop_event.set()
+
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            previous_handlers[sig] = signal.signal(sig, _handle_signal)
+
+    try:
+        while True:
+            if stop_event.is_set():
                 return
-        if once:
-            return
-        time.sleep(settings.worker_poll_seconds)
+            with SessionLocal() as session:
+                reap_stale_tasks(
+                    session, timedelta(minutes=settings.task_stale_running_minutes)
+                )
+                task = claim_next_task(session, worker_id)
+                if task:
+                    run_task(session, task)
+                elif once:
+                    return
+            if once:
+                return
+            time.sleep(settings.worker_poll_seconds)
+    finally:
+        if owns_event:
+            for sig, handler in previous_handlers.items():
+                signal.signal(sig, handler)
