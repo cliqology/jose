@@ -1,3 +1,4 @@
+import pytest
 from conftest import _make_company, _make_job
 from sqlalchemy import select
 
@@ -132,3 +133,109 @@ def test_new_job_first_version_is_not_counted_as_a_change(db_session, user, monk
     job = db_session.scalar(select(Job).where(Job.user_id == user.id))
     version = db_session.scalar(select(JobVersion).where(JobVersion.job_id == job.id))
     assert version.is_material is False
+
+
+def test_job_source_link_goes_inactive_when_absent_from_next_successful_run(
+    db_session, user, monkeypatch
+):
+    source = create_source(
+        db_session, user, SourceCreate(name="Acme", url="https://acme-sweep1.example.com/jobs")
+    )
+    job_item = CollectedJob(
+        company_name="Acme",
+        title="Software Engineer",
+        application_url="https://acme-sweep1.example.com/apply/1",
+    )
+    _collect(monkeypatch, db_session, source, [job_item])
+    _collect(monkeypatch, db_session, source, [])
+
+    job = db_session.scalar(select(Job).where(Job.user_id == user.id))
+    link = db_session.scalar(select(JobSource).where(JobSource.job_id == job.id))
+
+    assert link.is_active is False
+    assert link.removed_at is not None
+    assert job.status == "removed"
+    assert job.removed_at is not None
+
+
+def test_job_stays_active_when_a_second_source_still_lists_it(db_session, user, monkeypatch):
+    source_a = create_source(
+        db_session, user, SourceCreate(name="Acme A", url="https://acme-sweep2a.example.com/jobs")
+    )
+    source_b = create_source(
+        db_session, user, SourceCreate(name="Acme B", url="https://acme-sweep2b.example.com/jobs")
+    )
+    job_item = CollectedJob(
+        company_name="Acme",
+        title="Software Engineer",
+        application_url="https://acme-sweep2.example.com/apply/1",
+    )
+    _collect(monkeypatch, db_session, source_a, [job_item])
+    _collect(monkeypatch, db_session, source_b, [job_item])
+
+    _collect(monkeypatch, db_session, source_a, [])
+
+    job = db_session.scalar(select(Job).where(Job.user_id == user.id))
+    assert job.status == "active"
+
+    link_a = db_session.scalar(
+        select(JobSource).where(JobSource.job_id == job.id, JobSource.source_id == source_a.id)
+    )
+    link_b = db_session.scalar(
+        select(JobSource).where(JobSource.job_id == job.id, JobSource.source_id == source_b.id)
+    )
+    assert link_a.is_active is False
+    assert link_b.is_active is True
+
+
+def test_failed_run_leaves_job_source_state_untouched(db_session, user, monkeypatch):
+    source = create_source(
+        db_session, user, SourceCreate(name="Acme", url="https://acme-sweep3.example.com/jobs")
+    )
+    job_item = CollectedJob(
+        company_name="Acme",
+        title="Software Engineer",
+        application_url="https://acme-sweep3.example.com/apply/1",
+    )
+    _collect(monkeypatch, db_session, source, [job_item])
+
+    class _FailingCollector:
+        def collect(self, source_name, source_url):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(
+        "jose.services.collection.get_collector",
+        lambda url, adapter: _FailingCollector(),
+    )
+    with pytest.raises(RuntimeError):
+        collect_source(db_session, source.id)
+
+    job = db_session.scalar(select(Job).where(Job.user_id == user.id))
+    link = db_session.scalar(select(JobSource).where(JobSource.job_id == job.id))
+    assert job.status == "active"
+    assert link.is_active is True
+
+
+def test_revival_reactivates_job_and_link(db_session, user, monkeypatch):
+    source = create_source(
+        db_session, user, SourceCreate(name="Acme", url="https://acme-sweep4.example.com/jobs")
+    )
+    job_item = CollectedJob(
+        company_name="Acme",
+        title="Software Engineer",
+        application_url="https://acme-sweep4.example.com/apply/1",
+    )
+    _collect(monkeypatch, db_session, source, [job_item])
+    _collect(monkeypatch, db_session, source, [])
+
+    job = db_session.scalar(select(Job).where(Job.user_id == user.id))
+    assert job.status == "removed"
+
+    _collect(monkeypatch, db_session, source, [job_item])
+
+    db_session.refresh(job)
+    link = db_session.scalar(select(JobSource).where(JobSource.job_id == job.id))
+    assert job.status == "active"
+    assert job.removed_at is None
+    assert link.is_active is True
+    assert link.removed_at is None

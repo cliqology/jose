@@ -52,6 +52,9 @@ def collect_source(session: Session, source_id: uuid.UUID) -> SourceRun:
             created += int(was_created)
             updated += int(was_updated)
 
+        _sweep_inactive_job_sources(session, source, run.started_at)
+        session.commit()
+
         run = session.get(SourceRun, run.id)
         source = session.get(Source, source.id)
         assert run is not None and source is not None
@@ -78,6 +81,38 @@ def collect_source(session: Session, source_id: uuid.UUID) -> SourceRun:
             source.last_error = f"{type(exc).__name__}: {exc}"[:4000]
             session.commit()
         raise
+
+
+def _sweep_inactive_job_sources(
+    session: Session, source: Source, run_started_at: datetime
+) -> None:
+    stale_links = session.scalars(
+        select(JobSource).where(
+            JobSource.source_id == source.id,
+            JobSource.is_active.is_(True),
+            JobSource.last_seen_at < run_started_at,
+        )
+    ).all()
+    affected_job_ids: set[uuid.UUID] = set()
+    for link in stale_links:
+        link.is_active = False
+        link.removed_at = utcnow()
+        affected_job_ids.add(link.job_id)
+
+    # `SessionLocal` is configured with `autoflush=False`, so the `still_active`
+    # query below would not otherwise see the `is_active = False` updates just
+    # made above.
+    session.flush()
+
+    for job_id in affected_job_ids:
+        still_active = session.scalar(
+            select(JobSource).where(JobSource.job_id == job_id, JobSource.is_active.is_(True))
+        )
+        if still_active is None:
+            job = session.get(Job, job_id)
+            if job is not None and job.status == "active":
+                job.status = "removed"
+                job.removed_at = utcnow()
 
 
 def _find_fuzzy_candidate(
@@ -342,6 +377,8 @@ def _upsert_job(session: Session, source: Source, item: CollectedJob) -> tuple[b
     else:
         link.last_seen_at = utcnow()
         link.source_job_url = item.source_job_url or item.application_url
+        link.is_active = True
+        link.removed_at = None
 
     version = session.scalar(
         select(JobVersion).where(
