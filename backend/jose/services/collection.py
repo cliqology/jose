@@ -29,6 +29,7 @@ from jose.models import (
     SourceRun,
     SystemEvent,
 )
+from jose.services.error_sanitizer import sanitize_error_text
 
 
 def utcnow() -> datetime:
@@ -76,6 +77,7 @@ def collect_source(session: Session, source_id: uuid.UUID) -> SourceRun:
         source.last_success_at = utcnow()
         source.last_job_count = len(result.jobs)
         source.last_error = None
+        source.consecutive_failures = 0
         session.commit()
         return run
     except Exception as exc:
@@ -83,11 +85,14 @@ def collect_source(session: Session, source_id: uuid.UUID) -> SourceRun:
         run = session.get(SourceRun, run.id)
         source = session.get(Source, source_id)
         if run and source:
+            error_type = type(exc).__name__
+            error_message = sanitize_error_text(str(exc))[:4000]
             run.status = "failed"
             run.completed_at = utcnow()
-            run.error_type = type(exc).__name__
-            run.error_message = str(exc)[:4000]
-            source.last_error = f"{type(exc).__name__}: {exc}"[:4000]
+            run.error_type = error_type
+            run.error_message = error_message
+            source.last_error = f"{error_type}: {error_message}"[:4000]
+            source.consecutive_failures += 1
             session.commit()
         raise
 
