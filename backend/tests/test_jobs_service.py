@@ -226,3 +226,70 @@ def test_get_job_detail_rejects_other_user(db_session, user, other_user):
 
     with pytest.raises(JobNotFoundError):
         get_job_detail(db_session, user, job.id)
+
+
+def test_set_job_decision_updates_job_and_writes_audit_event(db_session, user):
+    from sqlalchemy import select
+
+    from jose.models import SystemEvent
+    from jose.services.jobs import set_job_decision
+
+    company = _make_company(db_session, user)
+    job = _make_job(db_session, user, company, application_url="https://a.example.com/1")
+    db_session.commit()
+
+    updated = set_job_decision(db_session, user, job.id, "applied")
+
+    assert updated.user_decision == "applied"
+
+    event = db_session.scalar(
+        select(SystemEvent).where(
+            SystemEvent.event_type == "job_decision_set", SystemEvent.entity_id == job.id
+        )
+    )
+    assert event is not None
+    assert event.data == {"previous": None, "decision": "applied"}
+
+
+def test_set_job_decision_clears_with_none_and_records_previous(db_session, user):
+    from sqlalchemy import select
+
+    from jose.models import SystemEvent
+    from jose.services.jobs import set_job_decision
+
+    company = _make_company(db_session, user)
+    job = _make_job(
+        db_session, user, company, application_url="https://a.example.com/1", user_decision="watch"
+    )
+    db_session.commit()
+
+    updated = set_job_decision(db_session, user, job.id, None)
+
+    assert updated.user_decision is None
+
+    event = db_session.scalar(
+        select(SystemEvent).where(
+            SystemEvent.event_type == "job_decision_set", SystemEvent.entity_id == job.id
+        )
+    )
+    assert event.data == {"previous": "watch", "decision": None}
+
+
+def test_set_job_decision_raises_for_missing_job(db_session, user):
+    import uuid
+
+    from jose.services.jobs import JobNotFoundError, set_job_decision
+
+    with pytest.raises(JobNotFoundError):
+        set_job_decision(db_session, user, uuid.uuid4(), "applied")
+
+
+def test_set_job_decision_rejects_other_user(db_session, user, other_user):
+    from jose.services.jobs import JobNotFoundError, set_job_decision
+
+    company = _make_company(db_session, other_user)
+    job = _make_job(db_session, other_user, company, application_url="https://a.example.com/1")
+    db_session.commit()
+
+    with pytest.raises(JobNotFoundError):
+        set_job_decision(db_session, user, job.id, "applied")

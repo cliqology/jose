@@ -5,7 +5,7 @@ from typing import Any
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from jose.models import Company, Job, JobSource, JobVersion, Source, User
+from jose.models import Company, Job, JobSource, JobVersion, Source, SystemEvent, User
 
 HIDDEN_BY_DEFAULT_DECISIONS = ("irrelevant", "archived")
 
@@ -175,3 +175,27 @@ def get_job_detail(session: Session, user: User, job_id: uuid.UUID) -> dict[str,
         "sources": sources,
         "versions": versions,
     }
+
+
+def set_job_decision(
+    session: Session, user: User, job_id: uuid.UUID, decision: str | None
+) -> Job:
+    job = session.scalar(select(Job).where(Job.id == job_id, Job.user_id == user.id))
+    if job is None:
+        raise JobNotFoundError(str(job_id))
+
+    previous = job.user_decision
+    job.user_decision = decision
+    session.add(
+        SystemEvent(
+            user_id=user.id,
+            event_type="job_decision_set",
+            entity_type="job",
+            entity_id=job.id,
+            message=f"Job decision set to {decision!r} (was {previous!r})",
+            data={"previous": previous, "decision": decision},
+        )
+    )
+    session.commit()
+    session.refresh(job)
+    return job
