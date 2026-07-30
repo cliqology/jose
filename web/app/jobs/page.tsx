@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getJobs } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +17,12 @@ export default async function JobsPage() {
           <h1>Jobs</h1>
           <p>One canonical record per opportunity, even when several sources find it.</p>
         </div>
-        <span className="countPill">{jobs.length} shown</span>
+        <div className="rowActions">
+          <Link className="primaryAction ghostButton" href="/jobs/review">
+            Review possible duplicates
+          </Link>
+          <span className="countPill">{jobs.length} shown</span>
+        </div>
       </div>
 
       <div className="jobGrid">

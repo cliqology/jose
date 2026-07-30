@@ -37,6 +37,25 @@ export type Job = {
   status: string;
 };
 
+export type JobMergeSummary = {
+  id: string;
+  title: string;
+  company_name: string;
+  location: string | null;
+  application_url: string;
+  status: string;
+};
+
+export type JobMergeCandidate = {
+  id: string;
+  status: string;
+  similarity_score: number;
+  matched_signals: { company: number; title: number; location: number };
+  created_at: string;
+  job: JobMergeSummary;
+  candidate_job: JobMergeSummary;
+};
+
 export type ImportRun = {
   id: string;
   filename: string;
@@ -77,6 +96,10 @@ export async function getSources(): Promise<Source[]> {
 
 export async function getJobs(): Promise<Job[]> {
   return getJson<Job[]>("/api/v1/jobs?limit=200");
+}
+
+export async function getJobMergeCandidates(): Promise<JobMergeCandidate[]> {
+  return getJson<JobMergeCandidate[]>("/api/v1/job-merge-candidates?status=pending");
 }
 
 export async function getImportRuns(): Promise<ImportRun[]> {

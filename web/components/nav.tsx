@@ -4,6 +4,7 @@ const links = [
   ["Dashboard", "/"],
   ["Sources", "/sources"],
   ["Jobs", "/jobs"],
+  ["Review queue", "/jobs/review"],
 ] as const;
 
 export function Nav() {
