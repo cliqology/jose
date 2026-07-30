@@ -53,6 +53,51 @@ export type Job = {
   first_seen_at: string;
   last_seen_at: string;
   status: string;
+  user_decision: string | null;
+};
+
+export type JobFilters = {
+  company?: string;
+  title?: string;
+  source_id?: string;
+  date_from?: string;
+  date_to?: string;
+  location?: string;
+  ats_type?: string;
+  status?: string;
+  decision?: string[];
+  limit?: number;
+  offset?: number;
+};
+
+export type JobSourceLineage = {
+  source_id: string;
+  source_name: string;
+  source_category: string;
+  source_job_url: string | null;
+  is_active: boolean;
+  first_seen_at: string;
+  last_seen_at: string;
+};
+
+export type JobVersionEntry = {
+  seen_at: string;
+  is_material: boolean;
+  content_hash: string;
+};
+
+export type JobDetail = Job & {
+  normalized_title: string;
+  description_text: string | null;
+  department: string | null;
+  remote_type: string | null;
+  employment_type: string | null;
+  compensation_min: number | null;
+  compensation_max: number | null;
+  currency: string | null;
+  canonical_url: string;
+  sources: JobSourceLineage[];
+  versions: JobVersionEntry[];
 };
 
 export type JobMergeSummary = {
@@ -120,8 +165,30 @@ export async function getSourceRuns(id: string): Promise<SourceRun[]> {
   return getJson<SourceRun[]>(`/api/v1/sources/${id}/runs`);
 }
 
-export async function getJobs(): Promise<Job[]> {
-  return getJson<Job[]>("/api/v1/jobs?limit=200");
+function buildJobsQuery(filters: JobFilters): string {
+  const params = new URLSearchParams();
+  if (filters.company) params.set("company", filters.company);
+  if (filters.title) params.set("title", filters.title);
+  if (filters.source_id) params.set("source_id", filters.source_id);
+  if (filters.date_from) params.set("date_from", filters.date_from);
+  if (filters.date_to) params.set("date_to", filters.date_to);
+  if (filters.location) params.set("location", filters.location);
+  if (filters.ats_type) params.set("ats_type", filters.ats_type);
+  if (filters.status) params.set("status", filters.status);
+  for (const decision of filters.decision ?? []) {
+    params.append("decision", decision);
+  }
+  params.set("limit", String(filters.limit ?? 50));
+  params.set("offset", String(filters.offset ?? 0));
+  return params.toString();
+}
+
+export async function getJobs(filters: JobFilters = {}): Promise<Job[]> {
+  return getJson<Job[]>(`/api/v1/jobs?${buildJobsQuery(filters)}`);
+}
+
+export async function getJob(id: string): Promise<JobDetail> {
+  return getJson<JobDetail>(`/api/v1/jobs/${id}`);
 }
 
 export async function getJobMergeCandidates(): Promise<JobMergeCandidate[]> {
