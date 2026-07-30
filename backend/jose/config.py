@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     collector_retain_raw_payload: bool = True
     worker_poll_seconds: float = 2.0
     worker_id: str = "jose-worker"
+    task_retry_base_seconds: float = 60.0
+    task_retry_max_seconds: float = 1800.0
+    task_retry_jitter_pct: float = 0.2
 
     @property
     def cors_origins(self) -> list[str]:

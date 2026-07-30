@@ -1,6 +1,7 @@
+import random
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -8,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from jose.config import get_settings
 from jose.db.session import SessionLocal
-from jose.models import Source, Task, User
+from jose.models import Source, SystemEvent, Task, User
 from jose.services.collection import collect_source
 
 
@@ -83,6 +84,17 @@ def claim_next_task(session: Session, worker_id: str) -> Task | None:
     return task
 
 
+def backoff_delay(attempts: int) -> timedelta:
+    settings = get_settings()
+    base = min(
+        settings.task_retry_base_seconds * (2 ** (attempts - 1)),
+        settings.task_retry_max_seconds,
+    )
+    jitter = base * settings.task_retry_jitter_pct
+    seconds = random.uniform(base - jitter, base + jitter)
+    return timedelta(seconds=seconds)
+
+
 def run_task(session: Session, task: Task) -> None:
     try:
         if task.task_type == "collect_source":
@@ -101,7 +113,28 @@ def run_task(session: Session, task: Task) -> None:
         if task:
             task.last_error = f"{type(exc).__name__}: {exc}"
             task.completed_at = utcnow()
-            task.status = "queued" if task.attempts < task.max_attempts else "failed"
+            if task.attempts < task.max_attempts:
+                task.status = "queued"
+                task.scheduled_at = utcnow() + backoff_delay(task.attempts)
+            else:
+                task.status = "failed"
+                session.add(
+                    SystemEvent(
+                        user_id=task.user_id,
+                        event_type="task_failed",
+                        entity_type="task",
+                        entity_id=task.id,
+                        message=(
+                            f"Task {task.id} ({task.task_type}) failed permanently "
+                            f"after {task.attempts} attempts"
+                        ),
+                        data={
+                            "task_type": task.task_type,
+                            "attempts": task.attempts,
+                            "last_error": task.last_error,
+                        },
+                    )
+                )
             session.commit()
 
 
