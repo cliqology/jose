@@ -34,6 +34,7 @@ def list_jobs(
             "first_seen_at": job.first_seen_at,
             "last_seen_at": job.last_seen_at,
             "status": job.status,
+            "reposted_from_job_id": job.reposted_from_job_id,
         }
         for job, company_name in rows
     ]

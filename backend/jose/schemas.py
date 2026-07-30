@@ -168,6 +168,10 @@ class DashboardSummary(BaseModel):
     sources_failing: int
     jobs_total: int
     jobs_seen_last_24h: int
+    jobs_new_last_24h: int
+    jobs_changed_last_24h: int
+    jobs_removed_last_24h: int
+    jobs_reposted_last_24h: int
     queued_tasks: int
     running_tasks: int
 

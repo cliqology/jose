@@ -3,12 +3,22 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from jose.models import Job, Source, Task, User
+from jose.models import Job, JobVersion, Source, Task, User
 from jose.schemas import DashboardSummary
 
 
 def get_dashboard_summary(session: Session, user: User) -> DashboardSummary:
     since = datetime.now(UTC) - timedelta(hours=24)
+
+    jobs_new = (
+        session.scalar(
+            select(func.count())
+            .select_from(Job)
+            .where(Job.user_id == user.id, Job.status != "merged", Job.first_seen_at >= since)
+        )
+        or 0
+    )
+
     return DashboardSummary(
         sources_total=session.scalar(
             select(func.count()).select_from(Source).where(Source.user_id == user.id)
@@ -32,10 +42,33 @@ def get_dashboard_summary(session: Session, user: User) -> DashboardSummary:
             .where(Job.user_id == user.id, Job.status != "merged")
         )
         or 0,
-        jobs_seen_last_24h=session.scalar(
+        jobs_seen_last_24h=jobs_new,
+        jobs_new_last_24h=jobs_new,
+        jobs_changed_last_24h=session.scalar(
+            select(func.count(func.distinct(JobVersion.job_id)))
+            .select_from(JobVersion)
+            .join(Job, Job.id == JobVersion.job_id)
+            .where(
+                Job.user_id == user.id,
+                JobVersion.is_material.is_(True),
+                JobVersion.seen_at >= since,
+            )
+        )
+        or 0,
+        jobs_removed_last_24h=session.scalar(
             select(func.count())
             .select_from(Job)
-            .where(Job.user_id == user.id, Job.status != "merged", Job.first_seen_at >= since)
+            .where(Job.user_id == user.id, Job.status == "removed", Job.removed_at >= since)
+        )
+        or 0,
+        jobs_reposted_last_24h=session.scalar(
+            select(func.count())
+            .select_from(Job)
+            .where(
+                Job.user_id == user.id,
+                Job.reposted_from_job_id.is_not(None),
+                Job.first_seen_at >= since,
+            )
         )
         or 0,
         queued_tasks=session.scalar(

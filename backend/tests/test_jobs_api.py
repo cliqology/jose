@@ -50,3 +50,75 @@ def test_dashboard_summary_excludes_merged_away_jobs(db_session, user):
 
     assert summary.jobs_total == 1
     assert summary.jobs_seen_last_24h == 1
+
+
+def test_list_jobs_includes_reposted_from_job_id(client, db_session, user):
+    company = _make_company(db_session, user)
+    original = _make_job(
+        db_session, user, company, application_url="https://acme.example.com/1", status="removed"
+    )
+    repost = _make_job(
+        db_session,
+        user,
+        company,
+        application_url="https://acme.example.com/2",
+        reposted_from_job_id=original.id,
+    )
+    db_session.commit()
+
+    response = client.get("/api/v1/jobs")
+
+    assert response.status_code == 200
+    body = {item["id"]: item for item in response.json()}
+    assert body[str(repost.id)]["reposted_from_job_id"] == str(original.id)
+
+
+def test_dashboard_summary_new_changed_removed_reposted_counts(db_session, user):
+    from datetime import UTC, datetime
+
+    from jose.models import JobVersion
+
+    company = _make_company(db_session, user)
+
+    _make_job(db_session, user, company, application_url="https://acme.example.com/new")
+
+    changed_job = _make_job(
+        db_session, user, company, application_url="https://acme.example.com/changed"
+    )
+    db_session.add(
+        JobVersion(
+            user_id=user.id,
+            job_id=changed_job.id,
+            content_hash="hash-changed",
+            snapshot={"a": 1},
+            is_material=True,
+        )
+    )
+
+    _make_job(
+        db_session,
+        user,
+        company,
+        application_url="https://acme.example.com/removed",
+        status="removed",
+        removed_at=datetime.now(UTC),
+    )
+
+    original_job = _make_job(
+        db_session, user, company, application_url="https://acme.example.com/original"
+    )
+    _make_job(
+        db_session,
+        user,
+        company,
+        application_url="https://acme.example.com/repost",
+        reposted_from_job_id=original_job.id,
+    )
+    db_session.commit()
+
+    summary = get_dashboard_summary(db_session, user)
+
+    assert summary.jobs_new_last_24h == 5
+    assert summary.jobs_changed_last_24h == 1
+    assert summary.jobs_removed_last_24h == 1
+    assert summary.jobs_reposted_last_24h == 1
