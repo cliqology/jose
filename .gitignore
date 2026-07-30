@@ -4,6 +4,9 @@
 !.env.example
 docker-compose.override.yml
 
+# Git worktrees
+.worktrees/
+
 # Python
 __pycache__/
 *.py[cod]
