@@ -16,11 +16,11 @@ from jose.services import job_merge as job_merge_service
 router = APIRouter(prefix="/api/v1/job-merge-candidates", tags=["job-merge-candidates"])
 
 
-def _job_summary(db: DBSession, job_id: uuid.UUID) -> dict[str, Any]:
+def _job_summary(db: DBSession, user: CurrentUser, job_id: uuid.UUID) -> dict[str, Any]:
     row = db.execute(
         select(Job, Company.name)
         .join(Company, Company.id == Job.company_id)
-        .where(Job.id == job_id)
+        .where(Job.id == job_id, Job.user_id == user.id)
     ).first()
     assert row is not None
     job, company_name = row
@@ -46,8 +46,8 @@ def list_job_merge_candidates(
             "similarity_score": candidate.similarity_score,
             "matched_signals": candidate.matched_signals,
             "created_at": candidate.created_at,
-            "job": _job_summary(db, candidate.job_id),
-            "candidate_job": _job_summary(db, candidate.candidate_job_id),
+            "job": _job_summary(db, user, candidate.job_id),
+            "candidate_job": _job_summary(db, user, candidate.candidate_job_id),
         }
         for candidate in candidates
     ]
