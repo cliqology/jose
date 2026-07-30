@@ -13,6 +13,7 @@ from jose.collectors.utils import (
     canonicalize_url,
     fuzzy_match_score,
     job_fingerprint,
+    material_hash,
     normalize_name,
     normalize_title,
     stable_hash,
@@ -249,6 +250,7 @@ def _upsert_job(session: Session, source: Source, item: CollectedJob) -> tuple[b
         )
     created = False
     updated = False
+    version_is_material = False
     if not job:
         fuzzy_match = _find_fuzzy_candidate(
             session, source.user_id, company_name, item.title, item.location
@@ -287,6 +289,15 @@ def _upsert_job(session: Session, source: Source, item: CollectedJob) -> tuple[b
         job.removed_at = None
         job.status = "active"
         if job.content_hash != content_hash:
+            previous_version = session.scalar(
+                select(JobVersion).where(
+                    JobVersion.job_id == job.id, JobVersion.content_hash == job.content_hash
+                )
+            )
+            version_is_material = (
+                previous_version is None
+                or material_hash(previous_version.snapshot) != material_hash(snapshot)
+            )
             if not matched_via_merge:
                 # The merged-away job still owns this fingerprint and
                 # `uq_jobs_user_fingerprint` is unique per user, so the survivor
@@ -345,6 +356,7 @@ def _upsert_job(session: Session, source: Source, item: CollectedJob) -> tuple[b
                 job_id=job.id,
                 content_hash=content_hash,
                 snapshot=snapshot,
+                is_material=version_is_material,
             )
         )
 
