@@ -5,7 +5,7 @@ from typing import Any
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from jose.models import Company, Job, JobSource, User
+from jose.models import Company, Job, JobSource, JobVersion, Source, User
 
 HIDDEN_BY_DEFAULT_DECISIONS = ("irrelevant", "archived")
 
@@ -105,3 +105,73 @@ def list_jobs(
         query.order_by(Job.first_seen_at.desc()).limit(limit).offset(offset)
     ).all()
     return [_job_row_to_dict(job, company_name) for job, company_name in rows]
+
+
+def get_job_detail(session: Session, user: User, job_id: uuid.UUID) -> dict[str, Any]:
+    row = session.execute(
+        select(Job, Company.name)
+        .join(Company, Company.id == Job.company_id)
+        .where(Job.id == job_id, Job.user_id == user.id)
+    ).first()
+    if row is None:
+        raise JobNotFoundError(str(job_id))
+    job, company_name = row
+
+    source_rows = session.execute(
+        select(JobSource, Source.name, Source.category)
+        .join(Source, Source.id == JobSource.source_id)
+        .where(JobSource.job_id == job.id, JobSource.user_id == user.id)
+        .order_by(JobSource.first_seen_at)
+    ).all()
+    sources = [
+        {
+            "source_id": link.source_id,
+            "source_name": source_name,
+            "source_category": source_category,
+            "source_job_url": link.source_job_url,
+            "is_active": link.is_active,
+            "first_seen_at": link.first_seen_at,
+            "last_seen_at": link.last_seen_at,
+        }
+        for link, source_name, source_category in source_rows
+    ]
+
+    versions = [
+        {
+            "seen_at": version.seen_at,
+            "is_material": version.is_material,
+            "content_hash": version.content_hash,
+        }
+        for version in session.scalars(
+            select(JobVersion)
+            .where(JobVersion.job_id == job.id)
+            .order_by(JobVersion.seen_at.desc())
+        ).all()
+    ]
+
+    return {
+        "id": job.id,
+        "company_name": company_name,
+        "title": job.title,
+        "normalized_title": job.normalized_title,
+        "description_text": job.description_text,
+        "description_html": job.description_html,
+        "department": job.department,
+        "location": job.location,
+        "remote_type": job.remote_type,
+        "employment_type": job.employment_type,
+        "compensation_min": job.compensation_min,
+        "compensation_max": job.compensation_max,
+        "currency": job.currency,
+        "application_url": job.application_url,
+        "canonical_url": job.canonical_url,
+        "ats_type": job.ats_type,
+        "published_at": job.published_at,
+        "first_seen_at": job.first_seen_at,
+        "last_seen_at": job.last_seen_at,
+        "status": job.status,
+        "reposted_from_job_id": job.reposted_from_job_id,
+        "user_decision": job.user_decision,
+        "sources": sources,
+        "versions": versions,
+    }

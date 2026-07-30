@@ -1,5 +1,6 @@
 import uuid
 
+import pytest
 from conftest import _make_company, _make_job
 
 from jose.models import JobSource, Source
@@ -160,3 +161,68 @@ def test_list_jobs_isolates_by_user(db_session, user, other_user):
     results = list_jobs(db_session, user)
 
     assert len(results) == 1
+
+
+def test_get_job_detail_includes_sources_and_versions(db_session, user):
+    from jose.models import JobSource, JobVersion
+    from jose.services.jobs import get_job_detail
+
+    company = _make_company(db_session, user)
+    job = _make_job(
+        db_session,
+        user,
+        company,
+        application_url="https://a.example.com/1",
+        description_text="Build things.",
+    )
+    source = _make_source(db_session, user, name="Acme Careers")
+    db_session.add(
+        JobSource(
+            user_id=user.id,
+            job_id=job.id,
+            source_id=source.id,
+            source_job_url="https://acme.example.com/jobs/1",
+            is_active=True,
+        )
+    )
+    db_session.add(
+        JobVersion(
+            user_id=user.id,
+            job_id=job.id,
+            content_hash="hash-1",
+            snapshot={"title": job.title},
+            is_material=True,
+        )
+    )
+    db_session.commit()
+
+    detail = get_job_detail(db_session, user, job.id)
+
+    assert detail["id"] == job.id
+    assert detail["company_name"] == company.name
+    assert detail["description_text"] == "Build things."
+    assert len(detail["sources"]) == 1
+    assert detail["sources"][0]["source_name"] == "Acme Careers"
+    assert detail["sources"][0]["source_job_url"] == "https://acme.example.com/jobs/1"
+    assert len(detail["versions"]) == 1
+    assert detail["versions"][0]["content_hash"] == "hash-1"
+
+
+def test_get_job_detail_raises_for_missing_job(db_session, user):
+    import uuid
+
+    from jose.services.jobs import JobNotFoundError, get_job_detail
+
+    with pytest.raises(JobNotFoundError):
+        get_job_detail(db_session, user, uuid.uuid4())
+
+
+def test_get_job_detail_rejects_other_user(db_session, user, other_user):
+    from jose.services.jobs import JobNotFoundError, get_job_detail
+
+    company = _make_company(db_session, other_user)
+    job = _make_job(db_session, other_user, company, application_url="https://a.example.com/1")
+    db_session.commit()
+
+    with pytest.raises(JobNotFoundError):
+        get_job_detail(db_session, user, job.id)
