@@ -9,6 +9,7 @@ from jose.collectors.base import CollectedJob
 from jose.collectors.utils import (
     COMPANY_ALIAS_THRESHOLD,
     FUZZY_MATCH_THRESHOLD,
+    TITLE_MATCH_THRESHOLD,
     canonicalize_url,
     fuzzy_match_score,
     job_fingerprint,
@@ -97,6 +98,8 @@ def _find_fuzzy_candidate(
             candidate_job.location or "",
         )
         if scores["company"] < COMPANY_ALIAS_THRESHOLD:
+            continue
+        if scores["title"] < TITLE_MATCH_THRESHOLD:
             continue
         if scores["composite"] < FUZZY_MATCH_THRESHOLD:
             continue

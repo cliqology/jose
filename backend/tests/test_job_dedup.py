@@ -1,5 +1,6 @@
 import uuid
 
+import pytest
 from conftest import _make_company, _make_job
 from sqlalchemy import select
 
@@ -167,6 +168,71 @@ def test_fuzzy_match_below_threshold_creates_no_candidate(db_session, user, monk
         select(JobMergeCandidate).where(JobMergeCandidate.user_id == user.id)
     ).all()
     assert candidates == []
+
+
+def _collect_two_titles(db_session, user, monkeypatch, title_a, title_b, company="Acme"):
+    """Collect two jobs at the same company/location from two sources."""
+    first_source = create_source(
+        db_session,
+        user,
+        SourceCreate(name=f"{company} board", url=f"https://{uuid.uuid4().hex}.example.com"),
+    )
+    first = CollectedJob(
+        company_name=company,
+        title=title_a,
+        location="San Francisco, CA",
+        application_url=f"https://{uuid.uuid4().hex}.example.com/apply/1",
+    )
+    monkeypatch.setattr(
+        "jose.services.collection.get_collector",
+        lambda url, adapter: _FakeCollector([first]),
+    )
+    collect_source(db_session, first_source.id)
+
+    second_source = create_source(
+        db_session,
+        user,
+        SourceCreate(name=f"{company} board 2", url=f"https://{uuid.uuid4().hex}.example.com"),
+    )
+    second = CollectedJob(
+        company_name=company,
+        title=title_b,
+        location="San Francisco, CA",
+        application_url=f"https://{uuid.uuid4().hex}.example.com/apply/1",
+    )
+    monkeypatch.setattr(
+        "jose.services.collection.get_collector",
+        lambda url, adapter: _FakeCollector([second]),
+    )
+    collect_source(db_session, second_source.id)
+
+
+@pytest.mark.parametrize(
+    ("title_a", "title_b"),
+    [
+        ("Product Manager", "Product Marketing Manager"),
+        ("Research Scientist", "Research Engineer"),
+    ],
+)
+def test_distinct_roles_at_same_company_create_no_candidate(
+    db_session, user, monkeypatch, title_a, title_b
+):
+    _collect_two_titles(db_session, user, monkeypatch, title_a, title_b)
+
+    candidates = db_session.scalars(
+        select(JobMergeCandidate).where(JobMergeCandidate.user_id == user.id)
+    ).all()
+    assert candidates == []
+
+
+def test_same_role_retitling_at_same_company_creates_candidate(db_session, user, monkeypatch):
+    _collect_two_titles(db_session, user, monkeypatch, "Software Engineer", "Software Engineer II")
+
+    candidates = db_session.scalars(
+        select(JobMergeCandidate).where(JobMergeCandidate.user_id == user.id)
+    ).all()
+    assert len(candidates) == 1
+    assert candidates[0].status == "pending"
 
 
 def test_recollecting_merged_away_job_updates_survivor_not_tombstone(

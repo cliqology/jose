@@ -125,6 +125,12 @@ def job_fingerprint(
 
 COMPANY_ALIAS_THRESHOLD = 0.6
 FUZZY_MATCH_THRESHOLD = 0.80
+# Same company + same location already contributes 0.6 to the composite, so any
+# title ratio above 0.5 clears FUZZY_MATCH_THRESHOLD on its own. Distinct roles at
+# one company ("Product Manager" vs "Product Marketing Manager", 0.750) need their
+# own gate; re-titlings of one role ("Software Engineer" vs "Software Engineer II",
+# 0.919) stay above it.
+TITLE_MATCH_THRESHOLD = 0.85
 
 
 def fuzzy_match_score(

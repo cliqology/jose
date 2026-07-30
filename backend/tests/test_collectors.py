@@ -1,7 +1,10 @@
+import pytest
+
 from jose.collectors.registry import detect_adapter, match_known_ats_host
 from jose.collectors.utils import (
     COMPANY_ALIAS_THRESHOLD,
     FUZZY_MATCH_THRESHOLD,
+    TITLE_MATCH_THRESHOLD,
     canonicalize_url,
     fuzzy_match_score,
     job_fingerprint,
@@ -78,6 +81,44 @@ def test_fuzzy_match_score_different_role_stays_below_threshold():
         "Acme", "Enterprise Sales Director", "San Francisco, CA",
     )
     assert scores["composite"] < FUZZY_MATCH_THRESHOLD
+
+
+@pytest.mark.parametrize(
+    ("title_a", "title_b"),
+    [
+        ("Product Manager", "Product Marketing Manager"),
+        ("Research Scientist", "Research Engineer"),
+        ("Account Executive", "Account Manager"),
+    ],
+)
+def test_fuzzy_match_score_distinct_roles_fail_title_prefilter(title_a, title_b):
+    """Same company and location alone put the composite over FUZZY_MATCH_THRESHOLD.
+
+    These are clearly different jobs, so only the title prefilter keeps them out
+    of the review queue.
+    """
+    scores = fuzzy_match_score(
+        "Acme", title_a, "San Francisco, CA",
+        "Acme", title_b, "San Francisco, CA",
+    )
+    assert scores["composite"] >= FUZZY_MATCH_THRESHOLD
+    assert scores["title"] < TITLE_MATCH_THRESHOLD
+
+
+@pytest.mark.parametrize(
+    ("title_a", "title_b"),
+    [
+        ("Senior Software Engineer", "Sr. Software Engineer"),
+        ("Software Engineer", "Software Engineer II"),
+    ],
+)
+def test_fuzzy_match_score_same_role_retitling_clears_title_prefilter(title_a, title_b):
+    scores = fuzzy_match_score(
+        "Acme", title_a, "San Francisco, CA",
+        "Acme", title_b, "San Francisco, CA",
+    )
+    assert scores["title"] >= TITLE_MATCH_THRESHOLD
+    assert scores["composite"] >= FUZZY_MATCH_THRESHOLD
 
 
 def test_fuzzy_match_score_unrelated_company_fails_prefilter():
