@@ -83,16 +83,13 @@ def merge_candidate(
                 JobSource.user_id == user.id,
             )
         )
+        # On a collision the kept job already has a link to this source, so leave
+        # both rows exactly where they are. Deleting either loses source lineage
+        # and `unmerge_candidate` — which only knows about `moved_*_ids` — has no
+        # way to restore it.
         if existing_link is None:
             link.job_id = kept_job_id
             moved_source_ids.append(str(link.id))
-        elif link.last_seen_at > existing_link.last_seen_at:
-            session.delete(existing_link)
-            session.flush()
-            link.job_id = kept_job_id
-            moved_source_ids.append(str(link.id))
-        else:
-            session.delete(link)
 
     moved_version_ids: list[str] = []
     for version in session.scalars(
@@ -103,11 +100,10 @@ def merge_candidate(
                 JobVersion.job_id == kept_job_id, JobVersion.content_hash == version.content_hash
             )
         )
+        # Same non-destructive policy as the JobSource links above.
         if existing_version is None:
             version.job_id = kept_job_id
             moved_version_ids.append(str(version.id))
-        else:
-            session.delete(version)
 
     merged_job.status = "merged"
     merged_job.merged_into_job_id = kept_job_id
