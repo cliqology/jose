@@ -268,6 +268,35 @@ def test_unmerge_restores_only_originally_moved_rows(db_session, user):
     assert len(events) == 1
 
 
+def test_merge_rejects_candidate_referencing_already_merged_job(db_session, user):
+    company = _make_company(db_session, user)
+    shared_job = _make_job(db_session, user, company, application_url="https://acme.example.com/1")
+    first_other = _make_job(
+        db_session, user, company, application_url="https://acme.example.com/2"
+    )
+    second_other = _make_job(
+        db_session, user, company, application_url="https://acme.example.com/3"
+    )
+    # Two pending candidates both referencing `shared_job`.
+    first_candidate = _make_candidate(db_session, user, first_other, shared_job)
+    second_candidate = _make_candidate(db_session, user, second_other, shared_job)
+    db_session.commit()
+
+    # Resolving the first one tombstones `shared_job`.
+    merge_candidate(db_session, user, first_candidate.id, keep="job")
+    db_session.refresh(shared_job)
+    assert shared_job.status == "merged"
+
+    with pytest.raises(MergeCandidateNotPendingError):
+        merge_candidate(db_session, user, second_candidate.id, keep="job")
+
+    db_session.refresh(second_candidate)
+    assert second_candidate.status == "pending"
+    db_session.refresh(second_other)
+    assert second_other.status == "active"
+    assert second_other.merged_into_job_id is None
+
+
 def test_unmerge_requires_merged_status(db_session, user):
     company = _make_company(db_session, user)
     job = _make_job(db_session, user, company)

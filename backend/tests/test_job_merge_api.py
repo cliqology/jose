@@ -86,6 +86,32 @@ def test_resolve_merge_then_unmerge_round_trip(client, db_session, user):
     assert unmerge_response.json()["status"] == "dismissed"
 
 
+def test_resolve_merge_on_stale_candidate_returns_409(client, db_session, user):
+    company = _make_company(db_session, user)
+    shared = _make_job(db_session, user, company)
+    first_other = _make_job(
+        db_session, user, company, application_url="https://acme.example.com/2"
+    )
+    second_other = _make_job(
+        db_session, user, company, application_url="https://acme.example.com/3"
+    )
+    first_candidate = _make_candidate(db_session, user, first_other, shared)
+    second_candidate = _make_candidate(db_session, user, second_other, shared)
+    db_session.commit()
+
+    first = client.post(
+        f"/api/v1/job-merge-candidates/{first_candidate.id}/resolve",
+        json={"action": "merge", "keep": "job"},
+    )
+    assert first.status_code == 200
+
+    second = client.post(
+        f"/api/v1/job-merge-candidates/{second_candidate.id}/resolve",
+        json={"action": "merge", "keep": "job"},
+    )
+    assert second.status_code == 409
+
+
 def test_resolve_unknown_candidate_returns_404(client):
     response = client.post(
         f"/api/v1/job-merge-candidates/{uuid.uuid4()}/resolve", json={"action": "dismiss"}

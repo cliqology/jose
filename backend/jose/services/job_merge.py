@@ -67,6 +67,14 @@ def merge_candidate(
     if candidate.status != "pending":
         raise MergeCandidateNotPendingError(str(candidate_id))
 
+    # A job can carry several pending candidates. Once one is resolved, the others
+    # still reference a tombstone and would reassign data onto it instead of the
+    # actual survivor, so they can no longer be resolved as proposed.
+    for job_id in (candidate.job_id, candidate.candidate_job_id):
+        job = session.get(Job, job_id)
+        if job is None or job.status != "active":
+            raise MergeCandidateNotPendingError(str(candidate_id))
+
     kept_job_id = candidate.job_id if keep == "job" else candidate.candidate_job_id
     merged_job_id = candidate.candidate_job_id if keep == "job" else candidate.job_id
     merged_job = session.get(Job, merged_job_id)
