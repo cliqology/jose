@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { CollectButton } from "@/components/collect-button";
-import { SourceRunHistory } from "@/components/source-run-history";
+import { formatDuration, SourceRunHistory } from "@/components/source-run-history";
 import { getSource, getSourceRuns } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
@@ -19,17 +19,7 @@ export default async function SourceDetailPage({
   try {
     const [source, runs] = await Promise.all([getSource(id), getSourceRuns(id)]);
     const lastRun = runs[0] ?? null;
-    const lastRunDuration =
-      lastRun && lastRun.completed_at
-        ? `${Math.max(
-            0,
-            Math.round(
-              (new Date(lastRun.completed_at).getTime() -
-                new Date(lastRun.started_at).getTime()) /
-                1000,
-            ),
-          )}s`
-        : "—";
+    const lastRunDuration = lastRun ? formatDuration(lastRun) : "—";
 
     return (
       <section>

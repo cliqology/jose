@@ -4,7 +4,7 @@ function formatDateTime(value: string): string {
   return new Date(value).toLocaleString();
 }
 
-function formatDuration(run: SourceRun): string {
+export function formatDuration(run: SourceRun): string {
   if (!run.completed_at) return "—";
   const seconds = Math.max(
     0,
