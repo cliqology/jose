@@ -395,3 +395,41 @@ def test_get_job_detail_api_404_for_other_users_job(client, db_session, other_us
     response = client.get(f"/api/v1/jobs/{job.id}")
 
     assert response.status_code == 404
+
+
+def test_update_job_decision_api_sets_and_clears(client, db_session, user):
+    company = _make_company(db_session, user)
+    job = _make_job(db_session, user, company, application_url="https://acme.example.com/1")
+    db_session.commit()
+
+    set_response = client.patch(
+        f"/api/v1/jobs/{job.id}/decision", json={"decision": "watch"}
+    )
+    assert set_response.status_code == 200
+    assert set_response.json()["user_decision"] == "watch"
+
+    clear_response = client.patch(f"/api/v1/jobs/{job.id}/decision", json={"decision": None})
+    assert clear_response.status_code == 200
+    assert clear_response.json()["user_decision"] is None
+
+
+def test_update_job_decision_api_rejects_invalid_value(client, db_session, user):
+    company = _make_company(db_session, user)
+    job = _make_job(db_session, user, company, application_url="https://acme.example.com/1")
+    db_session.commit()
+
+    response = client.patch(
+        f"/api/v1/jobs/{job.id}/decision", json={"decision": "not-a-real-decision"}
+    )
+
+    assert response.status_code == 422
+
+
+def test_update_job_decision_api_404_for_other_users_job(client, db_session, other_user):
+    company = _make_company(db_session, other_user)
+    job = _make_job(db_session, other_user, company, application_url="https://b.example.com/1")
+    db_session.commit()
+
+    response = client.patch(f"/api/v1/jobs/{job.id}/decision", json={"decision": "applied"})
+
+    assert response.status_code == 404
