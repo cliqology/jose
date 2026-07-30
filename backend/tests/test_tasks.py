@@ -2,15 +2,19 @@ import os
 import socket
 import threading
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
 from jose.config import get_settings
 from jose.models import SystemEvent, Task
+from jose.schemas import SourceCreate
+from jose.services.sources import create_source
 from jose.services import tasks as tasks_module
 from jose.services.tasks import (
     backoff_delay,
     claim_next_task,
+    enqueue_collect_all,
     enqueue_task,
     reap_stale_tasks,
     run_task,
@@ -212,3 +216,24 @@ def test_worker_loop_finishes_current_task_then_stops_on_shutdown(db_session, us
     db_session.expire_all()
     db_session.refresh(task)
     assert task.attempts == 1
+
+
+def test_enqueue_collect_all_uses_users_timezone_for_idempotency_key(db_session, user):
+    user.timezone = "Pacific/Kiritimati"
+    db_session.commit()
+
+    source = create_source(
+        db_session, user, SourceCreate(name="Acme", url="https://acme-tz.example.com/jobs")
+    )
+
+    first_batch = enqueue_collect_all(db_session, user)
+    assert len(first_batch) == 1
+
+    second_batch = enqueue_collect_all(db_session, user)
+    assert len(second_batch) == 0
+
+    expected_key = (
+        f"collect_source:{source.id}:"
+        f"{datetime.now(ZoneInfo('Pacific/Kiritimati')).date().isoformat()}"
+    )
+    assert first_batch[0].idempotency_key == expected_key

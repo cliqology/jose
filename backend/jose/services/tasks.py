@@ -6,6 +6,7 @@ import threading
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import case, select, update
 from sqlalchemy.exc import IntegrityError
@@ -52,7 +53,7 @@ def enqueue_collect_all(session: Session, user: User, force: bool = False) -> li
         .where(Source.user_id == user.id, Source.enabled.is_(True))
         .order_by(Source.priority, Source.name)
     ).all()
-    date_key = utcnow().date().isoformat()
+    date_key = datetime.now(ZoneInfo(user.timezone)).date().isoformat()
     tasks: list[Task] = []
     for source in sources:
         suffix = str(uuid.uuid4()) if force else date_key
