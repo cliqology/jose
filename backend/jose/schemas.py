@@ -42,6 +42,73 @@ class JobMergeKeep(StrEnum):
     CANDIDATE = "candidate"
 
 
+class JobDecision(StrEnum):
+    APPLIED = "applied"
+    IRRELEVANT = "irrelevant"
+    WATCH = "watch"
+    ARCHIVED = "archived"
+
+
+class JobDecisionUpdate(BaseModel):
+    decision: JobDecision | None
+
+
+class JobDecisionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    user_decision: str | None
+
+
+class JobSourceRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    source_id: uuid.UUID
+    source_name: str
+    source_category: str
+    source_job_url: str | None
+    is_active: bool
+    first_seen_at: datetime
+    last_seen_at: datetime
+
+
+class JobVersionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    seen_at: datetime
+    is_material: bool
+    content_hash: str
+
+
+class JobDetailRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    company_name: str
+    title: str
+    normalized_title: str
+    description_text: str | None
+    description_html: str | None
+    department: str | None
+    location: str | None
+    remote_type: str | None
+    employment_type: str | None
+    compensation_min: int | None
+    compensation_max: int | None
+    currency: str | None
+    application_url: str
+    canonical_url: str
+    ats_type: str | None
+    published_at: datetime | None
+    first_seen_at: datetime
+    last_seen_at: datetime
+    status: str
+    reposted_from_job_id: uuid.UUID | None
+    user_decision: str | None
+    sources: list[JobSourceRead]
+    versions: list[JobVersionRead]
+
+
 class SourceCreate(BaseModel):
     name: str = Field(min_length=1, max_length=250)
     url: HttpUrl
