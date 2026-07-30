@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import type { Source } from "@/lib/api";
 import { apiFetch, apiFetchJson } from "@/lib/browser-api";
 import { CollectButton } from "@/components/collect-button";
@@ -455,10 +456,12 @@ export function SourceManager({ initialSources }: { initialSources: Source[] }) 
               ) : (
                 <tr key={source.id}>
                   <td>
-                    <a href={source.url} rel="noreferrer" target="_blank">
-                      {source.name}
-                    </a>
-                    <small>{source.url}</small>
+                    <Link href={`/sources/${source.id}`}>{source.name}</Link>
+                    <small>
+                      <a href={source.url} rel="noreferrer" target="_blank">
+                        {source.url}
+                      </a>
+                    </small>
                   </td>
                   <td>{source.category.replaceAll("_", " ")}</td>
                   <td>
@@ -467,15 +470,25 @@ export function SourceManager({ initialSources }: { initialSources: Source[] }) 
                   <td>{formatDate(source.last_success_at)}</td>
                   <td>{source.last_job_count ?? "—"}</td>
                   <td>
-                    {source.last_error ? (
-                      <span className="status bad" title={source.last_error}>
-                        Failed
-                      </span>
-                    ) : source.enabled ? (
-                      <span className="status good">Enabled</span>
-                    ) : (
-                      <span className="status neutral">Disabled</span>
-                    )}
+                    <span className="rowActions">
+                      {source.last_error ? (
+                        <span className="status bad" title={source.last_error}>
+                          Failed
+                        </span>
+                      ) : source.enabled ? (
+                        <span className="status good">Enabled</span>
+                      ) : (
+                        <span className="status neutral">Disabled</span>
+                      )}
+                      {source.consecutive_failures >= 2 ? (
+                        <span
+                          className="status warn"
+                          title={`${source.consecutive_failures} failed runs in a row`}
+                        >
+                          Repeated failures
+                        </span>
+                      ) : null}
+                    </span>
                   </td>
                   <td>
                     <div className="rowActions">
