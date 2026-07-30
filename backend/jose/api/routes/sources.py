@@ -3,8 +3,8 @@ import uuid
 from fastapi import APIRouter, HTTPException, Query, status
 
 from jose.api.deps import CurrentUser, DBSession
-from jose.models import Source
-from jose.schemas import QueueResponse, SourceCreate, SourceRead, SourceUpdate
+from jose.models import Source, SourceRun
+from jose.schemas import QueueResponse, SourceCreate, SourceRead, SourceRunRead, SourceUpdate
 from jose.services import sources as sources_service
 from jose.services.tasks import enqueue_task
 
@@ -28,6 +28,19 @@ def create_source(payload: SourceCreate, db: DBSession, user: CurrentUser) -> So
 def get_source(source_id: uuid.UUID, db: DBSession, user: CurrentUser) -> Source:
     try:
         return sources_service.get_source(db, user, source_id)
+    except sources_service.SourceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Source not found") from exc
+
+
+@router.get("/{source_id}/runs", response_model=list[SourceRunRead])
+def list_source_runs(
+    source_id: uuid.UUID,
+    db: DBSession,
+    user: CurrentUser,
+    limit: int = Query(default=20, ge=1, le=20),
+) -> list[SourceRun]:
+    try:
+        return sources_service.list_source_runs(db, user, source_id, limit=limit)
     except sources_service.SourceNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Source not found") from exc
 

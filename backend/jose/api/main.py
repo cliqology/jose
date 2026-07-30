@@ -32,8 +32,11 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(dashboard.router)
-app.include_router(sources.router)
+# imports.router (/api/v1/sources/import/*) must be registered before
+# sources.router: sources.router's GET /{source_id}/runs would otherwise
+# shadow imports.router's GET /import/runs, matching "import" as source_id.
 app.include_router(imports.router)
+app.include_router(sources.router)
 app.include_router(jobs.router)
 app.include_router(job_merge.router)
 app.include_router(tasks.router)

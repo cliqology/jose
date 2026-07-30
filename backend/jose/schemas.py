@@ -86,6 +86,22 @@ class SourceRead(BaseModel):
     detection_status: str | None
     detected_application_url: str | None
     detected_at: datetime | None
+    consecutive_failures: int
+
+
+class SourceRunRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    status: str
+    started_at: datetime
+    completed_at: datetime | None
+    jobs_found: int
+    jobs_created: int
+    jobs_updated: int
+    jobs_rejected: int
+    error_type: str | None
+    error_message: str | None
 
 
 class JobRead(BaseModel):
