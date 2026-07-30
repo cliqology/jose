@@ -122,3 +122,175 @@ def test_dashboard_summary_new_changed_removed_reposted_counts(db_session, user)
     assert summary.jobs_changed_last_24h == 1
     assert summary.jobs_removed_last_24h == 1
     assert summary.jobs_reposted_last_24h == 1
+
+
+def test_dashboard_summary_excludes_merged_away_changed_and_reposted_jobs(db_session, user):
+    from jose.models import JobVersion
+
+    company = _make_company(db_session, user)
+
+    changed_and_merged = _make_job(
+        db_session,
+        user,
+        company,
+        application_url="https://acme.example.com/changed-merged",
+        status="merged",
+    )
+    db_session.add(
+        JobVersion(
+            user_id=user.id,
+            job_id=changed_and_merged.id,
+            content_hash="hash-changed-merged",
+            snapshot={"a": 1},
+            is_material=True,
+        )
+    )
+
+    original_job = _make_job(
+        db_session, user, company, application_url="https://acme.example.com/original-2"
+    )
+    _make_job(
+        db_session,
+        user,
+        company,
+        application_url="https://acme.example.com/repost-merged",
+        reposted_from_job_id=original_job.id,
+        status="merged",
+    )
+    db_session.commit()
+
+    summary = get_dashboard_summary(db_session, user)
+
+    assert summary.jobs_changed_last_24h == 0
+    assert summary.jobs_reposted_last_24h == 0
+
+
+def test_dashboard_summary_excludes_rows_outside_24h_window(db_session, user):
+    """Every job's `first_seen_at` is set explicitly (inside or outside the window)
+    so the `jobs_new_last_24h` count doesn't pick up rows meant only to exercise
+    the changed/removed/reposted boundaries.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from jose.models import JobVersion
+
+    company = _make_company(db_session, user)
+    now = datetime.now(UTC)
+    inside = now - timedelta(hours=1)
+    outside = now - timedelta(hours=25)
+
+    # --- inside-window rows: one of each kind, each expected to count. ---
+    _make_job(
+        db_session,
+        user,
+        company,
+        application_url="https://acme.example.com/new-in",
+        first_seen_at=inside,
+    )
+
+    changed_in = _make_job(
+        db_session,
+        user,
+        company,
+        application_url="https://acme.example.com/changed-in",
+        first_seen_at=outside,  # not itself "new"; only the version matters here
+    )
+    db_session.add(
+        JobVersion(
+            user_id=user.id,
+            job_id=changed_in.id,
+            content_hash="hash-changed-in",
+            snapshot={"a": 1},
+            is_material=True,
+            seen_at=inside,
+        )
+    )
+
+    _make_job(
+        db_session,
+        user,
+        company,
+        application_url="https://acme.example.com/removed-in",
+        first_seen_at=outside,
+        status="removed",
+        removed_at=inside,
+    )
+
+    original_in = _make_job(
+        db_session,
+        user,
+        company,
+        application_url="https://acme.example.com/original-in",
+        first_seen_at=outside,
+    )
+    _make_job(
+        db_session,
+        user,
+        company,
+        application_url="https://acme.example.com/repost-in",
+        reposted_from_job_id=original_in.id,
+        first_seen_at=inside,
+    )
+
+    # --- outside-window rows: one of each kind, none expected to count. ---
+    _make_job(
+        db_session,
+        user,
+        company,
+        application_url="https://acme.example.com/new-out",
+        first_seen_at=outside,
+    )
+
+    changed_out = _make_job(
+        db_session,
+        user,
+        company,
+        application_url="https://acme.example.com/changed-out",
+        first_seen_at=outside,
+    )
+    db_session.add(
+        JobVersion(
+            user_id=user.id,
+            job_id=changed_out.id,
+            content_hash="hash-changed-out",
+            snapshot={"a": 1},
+            is_material=True,
+            seen_at=outside,
+        )
+    )
+
+    _make_job(
+        db_session,
+        user,
+        company,
+        application_url="https://acme.example.com/removed-out",
+        first_seen_at=outside,
+        status="removed",
+        removed_at=outside,
+    )
+
+    original_out = _make_job(
+        db_session,
+        user,
+        company,
+        application_url="https://acme.example.com/original-out",
+        first_seen_at=outside,
+    )
+    _make_job(
+        db_session,
+        user,
+        company,
+        application_url="https://acme.example.com/repost-out",
+        reposted_from_job_id=original_out.id,
+        first_seen_at=outside,
+    )
+    db_session.commit()
+
+    summary = get_dashboard_summary(db_session, user)
+
+    # Only the inside-window rows are counted: the "new" job plus the repost
+    # job (whose own first_seen_at also falls inside the window).
+    assert summary.jobs_new_last_24h == 2
+    assert summary.jobs_changed_last_24h == 1
+    assert summary.jobs_removed_last_24h == 1
+    assert summary.jobs_reposted_last_24h == 1

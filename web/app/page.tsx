@@ -33,6 +33,9 @@ export default async function DashboardPage() {
           <StatCard label="Jobs" value={summary.jobs_total} detail={`${summary.jobs_seen_last_24h} new in 24 hours`} />
           <StatCard label="Queued work" value={summary.queued_tasks} detail={`${summary.running_tasks} running`} />
           <StatCard label="Source failures" value={summary.sources_failing} warning={summary.sources_failing > 0} detail="Failures are visible, never hidden" />
+          <StatCard label="Changed" value={summary.jobs_changed_last_24h} detail="in the last 24 hours" />
+          <StatCard label="Removed" value={summary.jobs_removed_last_24h} detail="in the last 24 hours" />
+          <StatCard label="Reposted" value={summary.jobs_reposted_last_24h} detail="in the last 24 hours" />
         </section>
 
         <section className="twoColumn">

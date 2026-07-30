@@ -19,7 +19,16 @@ from jose.collectors.utils import (
     stable_hash,
 )
 from jose.config import get_settings
-from jose.models import Company, Job, JobMergeCandidate, JobSource, JobVersion, Source, SourceRun
+from jose.models import (
+    Company,
+    Job,
+    JobMergeCandidate,
+    JobSource,
+    JobVersion,
+    Source,
+    SourceRun,
+    SystemEvent,
+)
 
 
 def utcnow() -> datetime:
@@ -88,6 +97,7 @@ def _sweep_inactive_job_sources(
 ) -> None:
     stale_links = session.scalars(
         select(JobSource).where(
+            JobSource.user_id == source.user_id,
             JobSource.source_id == source.id,
             JobSource.is_active.is_(True),
             JobSource.last_seen_at < run_started_at,
@@ -106,13 +116,55 @@ def _sweep_inactive_job_sources(
 
     for job_id in affected_job_ids:
         still_active = session.scalar(
-            select(JobSource).where(JobSource.job_id == job_id, JobSource.is_active.is_(True))
+            select(JobSource).where(
+                JobSource.user_id == source.user_id,
+                JobSource.job_id == job_id,
+                JobSource.is_active.is_(True),
+            )
         )
         if still_active is None:
             job = session.get(Job, job_id)
             if job is not None and job.status == "active":
                 job.status = "removed"
                 job.removed_at = utcnow()
+                _dismiss_pending_merge_candidates_for_removed_job(session, job_id)
+
+
+def _dismiss_pending_merge_candidates_for_removed_job(
+    session: Session, job_id: uuid.UUID
+) -> None:
+    """Auto-dismiss pending merge candidates that reference a job just marked removed.
+
+    `merge_candidate` (in `job_merge.py`) requires both jobs in a pending candidate
+    to be `status == "active"`. Without this, a candidate involving a now-removed
+    job would still show as `status="pending"` to the user (`list_merge_candidates`
+    keeps surfacing it) but any attempt to actually merge it would raise
+    `MergeCandidateNotPendingError` with no explanation.
+    """
+    stranded_candidates = session.scalars(
+        select(JobMergeCandidate).where(
+            JobMergeCandidate.status == "pending",
+            or_(
+                JobMergeCandidate.job_id == job_id,
+                JobMergeCandidate.candidate_job_id == job_id,
+            ),
+        )
+    ).all()
+    for candidate in stranded_candidates:
+        candidate.status = "dismissed"
+        candidate.resolved_at = utcnow()
+        session.add(
+            SystemEvent(
+                user_id=candidate.user_id,
+                event_type="job_merge_candidate_dismissed_on_removal",
+                entity_type="job_merge_candidate",
+                entity_id=candidate.id,
+                message=(
+                    f"Dismissed merge candidate {candidate.id} because job {job_id} was removed"
+                ),
+                data={"job_id": str(job_id)},
+            )
+        )
 
 
 def _find_fuzzy_candidate(
@@ -281,12 +333,14 @@ def _upsert_job(session: Session, source: Source, item: CollectedJob) -> tuple[b
             job.merged_into_job_id = None
     if not job and item.ats_type and item.external_job_id:
         job = session.scalar(
-            select(Job).where(
+            select(Job)
+            .where(
                 Job.user_id == source.user_id,
                 Job.ats_type == item.ats_type,
                 Job.external_job_id == item.external_job_id,
-                Job.status == "active",
+                Job.status != "merged",
             )
+            .order_by((Job.status == "active").desc())
         )
     created = False
     updated = False

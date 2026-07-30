@@ -50,6 +50,7 @@ def get_dashboard_summary(session: Session, user: User) -> DashboardSummary:
             .join(Job, Job.id == JobVersion.job_id)
             .where(
                 Job.user_id == user.id,
+                Job.status != "merged",
                 JobVersion.is_material.is_(True),
                 JobVersion.seen_at >= since,
             )
@@ -66,6 +67,7 @@ def get_dashboard_summary(session: Session, user: User) -> DashboardSummary:
             .select_from(Job)
             .where(
                 Job.user_id == user.id,
+                Job.status != "merged",
                 Job.reposted_from_job_id.is_not(None),
                 Job.first_seen_at >= since,
             )

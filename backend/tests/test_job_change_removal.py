@@ -1,9 +1,9 @@
 import pytest
-from conftest import _make_company, _make_job
+from conftest import _make_candidate, _make_company, _make_job
 from sqlalchemy import select
 
 from jose.collectors.base import CollectedJob, CollectionResult
-from jose.models import Job, JobMergeCandidate, JobSource, JobVersion, Source
+from jose.models import Job, JobMergeCandidate, JobSource, JobVersion, Source, SystemEvent
 from jose.schemas import SourceCreate
 from jose.services.collection import collect_source
 from jose.services.sources import create_source
@@ -336,3 +336,124 @@ def test_active_fuzzy_match_uses_merge_queue_not_repost_link(db_session, user, m
         select(JobMergeCandidate).where(JobMergeCandidate.user_id == user.id)
     ).all()
     assert len(candidates) == 1
+
+
+def test_removed_job_revives_via_ats_id_when_fingerprint_changes(db_session, user, monkeypatch):
+    source = create_source(
+        db_session, user, SourceCreate(name="Acme", url="https://acme-tier1revive.example.com/jobs")
+    )
+    original = CollectedJob(
+        company_name="Acme",
+        title="Software Engineer",
+        location="San Francisco, CA",
+        application_url="https://acme-tier1revive.example.com/apply/1",
+        ats_type="greenhouse",
+        external_job_id="gh-900",
+    )
+    _collect(monkeypatch, db_session, source, [original])
+    _collect(monkeypatch, db_session, source, [])
+
+    removed_job = db_session.scalar(select(Job).where(Job.user_id == user.id))
+    assert removed_job.status == "removed"
+
+    # Same ats_type/external_job_id, but a changed location changes the
+    # fingerprint, so the Tier 0 exact-fingerprint lookup misses and this must
+    # revive through the Tier 1 (ats_type, external_job_id) match instead.
+    reappeared = CollectedJob(
+        company_name="Acme",
+        title="Software Engineer",
+        location="Remote",
+        application_url="https://acme-tier1revive.example.com/apply/1",
+        ats_type="greenhouse",
+        external_job_id="gh-900",
+    )
+    _collect(monkeypatch, db_session, source, [reappeared])
+
+    jobs = db_session.scalars(
+        select(Job).where(
+            Job.user_id == user.id,
+            Job.ats_type == "greenhouse",
+            Job.external_job_id == "gh-900",
+        )
+    ).all()
+    assert len(jobs) == 1
+    assert jobs[0].id == removed_job.id
+    assert jobs[0].status == "active"
+    assert jobs[0].reposted_from_job_id is None
+
+
+def test_sweep_does_not_touch_other_users_jobs_or_links(db_session, user, other_user, monkeypatch):
+    source_a = create_source(
+        db_session, user, SourceCreate(name="Acme A", url="https://acme-crossuser-a.example.com/jobs")
+    )
+    source_b = create_source(
+        db_session,
+        other_user,
+        SourceCreate(name="Acme B", url="https://acme-crossuser-b.example.com/jobs"),
+    )
+    job_item_a = CollectedJob(
+        company_name="Acme",
+        title="Software Engineer",
+        application_url="https://acme-crossuser-a.example.com/apply/1",
+    )
+    job_item_b = CollectedJob(
+        company_name="Acme",
+        title="Software Engineer",
+        application_url="https://acme-crossuser-b.example.com/apply/1",
+    )
+    _collect(monkeypatch, db_session, source_a, [job_item_a])
+    _collect(monkeypatch, db_session, source_b, [job_item_b])
+
+    # Drive user A's job to removed via the sweep.
+    _collect(monkeypatch, db_session, source_a, [])
+
+    job_a = db_session.scalar(select(Job).where(Job.user_id == user.id))
+    job_b = db_session.scalar(select(Job).where(Job.user_id == other_user.id))
+    link_b = db_session.scalar(select(JobSource).where(JobSource.job_id == job_b.id))
+
+    assert job_a.status == "removed"
+    assert job_b.status == "active"
+    assert job_b.removed_at is None
+    assert link_b.is_active is True
+    assert link_b.removed_at is None
+
+
+def test_sweep_dismisses_stranded_pending_merge_candidate(db_session, user, monkeypatch):
+    company = _make_company(db_session, user)
+    kept_job = _make_job(
+        db_session, user, company, application_url="https://acme-stranded.example.com/1"
+    )
+    source = create_source(
+        db_session, user, SourceCreate(name="Acme", url="https://acme-stranded.example.com/jobs")
+    )
+    removable_item = CollectedJob(
+        company_name="Acme",
+        title="Software Engineer",
+        application_url="https://acme-stranded.example.com/apply/2",
+    )
+    _collect(monkeypatch, db_session, source, [removable_item])
+    removable_job = db_session.scalar(
+        select(Job).where(
+            Job.user_id == user.id, Job.application_url == "https://acme-stranded.example.com/apply/2"
+        )
+    )
+    candidate = _make_candidate(db_session, user, kept_job, removable_job)
+
+    # Drive removable_job to removed via the sweep (its only source stops listing it).
+    _collect(monkeypatch, db_session, source, [])
+
+    db_session.refresh(removable_job)
+    assert removable_job.status == "removed"
+
+    db_session.refresh(candidate)
+    assert candidate.status == "dismissed"
+    assert candidate.resolved_at is not None
+
+    event = db_session.scalar(
+        select(SystemEvent).where(
+            SystemEvent.user_id == user.id,
+            SystemEvent.event_type == "job_merge_candidate_dismissed_on_removal",
+            SystemEvent.entity_id == candidate.id,
+        )
+    )
+    assert event is not None

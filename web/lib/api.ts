@@ -4,6 +4,10 @@ export type DashboardSummary = {
   sources_failing: number;
   jobs_total: number;
   jobs_seen_last_24h: number;
+  jobs_new_last_24h: number;
+  jobs_changed_last_24h: number;
+  jobs_removed_last_24h: number;
+  jobs_reposted_last_24h: number;
   queued_tasks: number;
   running_tasks: number;
 };
