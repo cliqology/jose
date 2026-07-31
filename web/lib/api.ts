@@ -54,6 +54,7 @@ export type Job = {
   last_seen_at: string;
   status: string;
   user_decision: string | null;
+  reposted_from_job_id: string | null;
 };
 
 export type JobFilters = {
@@ -89,6 +90,7 @@ export type JobVersionEntry = {
 export type JobDetail = Job & {
   normalized_title: string;
   description_text: string | null;
+  description_html: string | null;
   department: string | null;
   remote_type: string | null;
   employment_type: string | null;
