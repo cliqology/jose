@@ -26,21 +26,24 @@ def list_jobs(
     status: str | None = None,
     decision: list[str] | None = Query(default=None),  # noqa: B008
 ) -> list[dict[str, Any]]:
-    return jobs_service.list_jobs(
-        db,
-        user,
-        company=company,
-        title=title,
-        source_id=source_id,
-        date_from=date_from,
-        date_to=date_to,
-        location=location,
-        ats_type=ats_type,
-        status=status,
-        decision=decision,
-        limit=limit,
-        offset=offset,
-    )
+    try:
+        return jobs_service.list_jobs(
+            db,
+            user,
+            company=company,
+            title=title,
+            source_id=source_id,
+            date_from=date_from,
+            date_to=date_to,
+            location=location,
+            ats_type=ats_type,
+            status=status,
+            decision=decision,
+            limit=limit,
+            offset=offset,
+        )
+    except jobs_service.InvalidDateFilterError as exc:
+        raise HTTPException(status_code=422, detail="Invalid date filter") from exc
 
 
 @router.get("/{job_id}", response_model=JobDetailRead)

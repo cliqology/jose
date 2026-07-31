@@ -293,3 +293,10 @@ def test_set_job_decision_rejects_other_user(db_session, user, other_user):
 
     with pytest.raises(JobNotFoundError):
         set_job_decision(db_session, user, job.id, "applied")
+
+
+def test_list_jobs_raises_for_malformed_date_filter(db_session, user):
+    from jose.services.jobs import InvalidDateFilterError
+
+    with pytest.raises(InvalidDateFilterError):
+        list_jobs(db_session, user, date_from="not-a-date")

@@ -433,3 +433,9 @@ def test_update_job_decision_api_404_for_other_users_job(client, db_session, oth
     response = client.patch(f"/api/v1/jobs/{job.id}/decision", json={"decision": "applied"})
 
     assert response.status_code == 404
+
+
+def test_list_jobs_api_rejects_malformed_date_filter(client, db_session, user):
+    response = client.get("/api/v1/jobs", params={"date_from": "not-a-date"})
+
+    assert response.status_code == 422

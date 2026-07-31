@@ -14,10 +14,17 @@ class JobNotFoundError(Exception):
     pass
 
 
+class InvalidDateFilterError(Exception):
+    pass
+
+
 def _parse_date_bound(value: str | None, *, end_of_day: bool) -> datetime | None:
     if not value:
         return None
-    parsed = datetime.fromisoformat(value)
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise InvalidDateFilterError(f"Invalid date filter value: {value!r}") from exc
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     if end_of_day:
