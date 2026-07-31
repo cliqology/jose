@@ -1730,6 +1730,7 @@ Create `web/app/jobs/[id]/page.tsx`:
 
 ```tsx
 import Link from "next/link";
+import { revalidatePath } from "next/cache";
 import { JobDecisionControls } from "@/components/job-decision-controls";
 import { getJob } from "@/lib/api";
 
@@ -1745,6 +1746,11 @@ export default async function JobDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+
+  async function refreshJobDecision() {
+    "use server";
+    revalidatePath(`/jobs/${id}`);
+  }
 
   try {
     const job = await getJob(id);
@@ -1776,7 +1782,7 @@ export default async function JobDetailPage({
           <div className="panelHeader">
             <h2>Your decision</h2>
           </div>
-          <JobDecisionControls jobId={job.id} decision={job.user_decision} onChange={() => undefined} />
+          <JobDecisionControls jobId={job.id} decision={job.user_decision} onChange={refreshJobDecision} />
         </div>
 
         <dl className="kvGrid">
@@ -1908,6 +1914,8 @@ export default async function JobDetailPage({
 ```
 
 Note: `description_html` is deliberately not rendered anywhere (see Global Constraints) — only `description_text` is shown.
+
+Note: `onChange` must be a Server Action (`"use server"`), not a plain closure — Next.js 15's Server/Client Component boundary rejects ordinary functions as props passed from a Server Component into a `"use client"` component (`JobDecisionControls`), throwing "Event handlers cannot be passed to Client Component props" at request time (this doesn't fail `next build`'s type-check, only actual rendering). `refreshJobDecision` above calls `revalidatePath` so the page re-fetches `job.user_decision` and the decision buttons highlight correctly after a click, since this Server Component holds no client-side state of its own. (Discovered and fixed during Task 13's implementation — corrected here after the fact.)
 
 - [ ] **Step 2: Lint and build**
 
