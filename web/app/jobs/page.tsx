@@ -1,14 +1,58 @@
 import Link from "next/link";
-import { getJobs } from "@/lib/api";
+import { JobFilters } from "@/components/job-filters";
+import { JobsTable } from "@/components/jobs-table";
+import { getJobs, getSources } from "@/lib/api";
+import type { JobFilters as JobFiltersType } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
-function formatDate(value: string | null): string {
-  return value ? new Date(value).toLocaleDateString() : "Unknown";
+const PAGE_SIZE = 50;
+
+type RawSearchParams = Record<string, string | string[] | undefined>;
+
+function first(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }
 
-export default async function JobsPage() {
-  const jobs = await getJobs();
+function toFilters(searchParams: RawSearchParams): JobFiltersType {
+  const decision = first(searchParams.decision);
+  const offset = first(searchParams.offset);
+  return {
+    company: first(searchParams.company),
+    title: first(searchParams.title),
+    source_id: first(searchParams.source_id),
+    date_from: first(searchParams.date_from),
+    date_to: first(searchParams.date_to),
+    location: first(searchParams.location),
+    ats_type: first(searchParams.ats_type),
+    status: first(searchParams.status),
+    decision: decision ? [decision] : undefined,
+    limit: PAGE_SIZE,
+    offset: offset ? Number(offset) : 0,
+  };
+}
+
+function pageHref(searchParams: RawSearchParams, offset: number): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(searchParams)) {
+    if (key === "offset" || typeof value !== "string") continue;
+    params.set(key, value);
+  }
+  if (offset > 0) params.set("offset", String(offset));
+  const query = params.toString();
+  return query ? `/jobs?${query}` : "/jobs";
+}
+
+export default async function JobsPage({
+  searchParams,
+}: {
+  searchParams: Promise<RawSearchParams>;
+}) {
+  const resolvedSearchParams = await searchParams;
+  const filters = toFilters(resolvedSearchParams);
+  const [jobs, sources] = await Promise.all([getJobs(filters), getSources()]);
+  const offset = filters.offset ?? 0;
+
   return (
     <section>
       <div className="pageHeader">
@@ -25,23 +69,25 @@ export default async function JobsPage() {
         </div>
       </div>
 
-      <div className="jobGrid">
-        {jobs.map((job) => (
-          <article className="jobCard" key={job.id}>
-            <div className="jobMeta">
-              <span>{job.ats_type ?? "web"}</span>
-              <span>{formatDate(job.published_at ?? job.first_seen_at)}</span>
-            </div>
-            <h2>{job.title}</h2>
-            <p className="company">{job.company_name}</p>
-            <p>{job.location ?? "Location not listed"}</p>
-            <a className="primaryAction" href={job.application_url} rel="noreferrer" target="_blank">
-              Open original posting
-            </a>
-          </article>
-        ))}
+      <JobFilters sources={sources.map((source) => ({ id: source.id, name: source.name }))} />
+
+      <JobsTable initialJobs={jobs} />
+
+      <div className="rowActions" style={{ marginTop: "1rem" }}>
+        {offset > 0 ? (
+          <Link
+            className="ghostButton"
+            href={pageHref(resolvedSearchParams, Math.max(0, offset - PAGE_SIZE))}
+          >
+            Previous
+          </Link>
+        ) : null}
+        {jobs.length === PAGE_SIZE ? (
+          <Link className="ghostButton" href={pageHref(resolvedSearchParams, offset + PAGE_SIZE)}>
+            Next
+          </Link>
+        ) : null}
       </div>
-      {!jobs.length ? <p className="emptyState">No jobs have been collected yet.</p> : null}
     </section>
   );
 }
