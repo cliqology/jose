@@ -201,8 +201,10 @@ try/catch, render `apiError` panel on 404/failure. Sections:
 
 - Header: title, company, location, ATS badge, link to original posting,
   `job-decision-controls.tsx` (same component as the list, reused).
-- Description (rendered from `description_html` if present, else
-  `description_text` in a `<pre>`-style block).
+- Description (renders `description_text` only, in a `<pre>`-style block;
+  `description_html` is deliberately never rendered as HTML since it comes
+  from external, uncontrolled sources and this repo has no HTML sanitizer,
+  which would make `dangerouslySetInnerHTML` a stored-XSS vector).
 - Source lineage table: source name/category, link/URL, active/inactive,
   first/last seen — reuses the table styling from `source-run-history.tsx`.
 - Version history table: seen date, material/formatting badge — same table
